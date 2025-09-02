@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Sequence, Union
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -29,27 +29,64 @@ except Exception:  # pragma: no cover - fallback when multiprocess unavailable
 import BPOSD_threshold
 
 
-def get_BB_matrix(a: List[List[int]], l: int, m: int) -> np.ndarray:
-    # Aggregate Kronecker sums into an (l*m) x (l*m) matrix
-    A = np.zeros((l * m, l * m), dtype=int)
-    for i in range(len(a)):
-        for j in range(len(a[i])):
-            if i == 0:
-                A += np.kron(
-                    np.roll(np.identity(l), a[i][j], axis=1), np.identity(m)
-                ).astype(int)
-            else:
-                A += np.kron(
-                    np.identity(l), np.roll(np.identity(m), a[i][j], axis=1)
-                ).astype(int)
+def _shift_mat(n: int, k: int) -> np.ndarray:
+    """Return n x n cyclic shift-by-k matrix over GF(2) as uint8."""
+    return np.roll(np.identity(n, dtype=np.uint8), int(k) % n, axis=1)
+
+
+def _parse_bivariate_terms(
+    spec: Union[Sequence[Tuple[int, int]], np.ndarray]
+) -> List[Tuple[int, int]]:
+    """Normalize polynomial spec into list of (i, j) exponents for x^i y^j.
+
+    Accepts:
+    - list of pairs: [(i, j), ...] e.g., [(2,0), (1,1), (0,2)] for x^2 + xy + y^2
+    - ndarray shape (k, 2) with integer exponents
+    """
+    # ndarray of pairs
+    if isinstance(spec, np.ndarray):
+        arr = np.asarray(spec, dtype=np.uint8)
+        if arr.ndim == 2 and arr.shape[1] == 2:
+            return [(int(i), int(j)) for i, j in arr]
+        raise ValueError("ndarray spec must have shape (k, 2)")
+
+    # list of pairs (i, j)
+    if len(spec) > 0 and isinstance(spec[0], (list, tuple)) and len(spec[0]) == 2:
+        return [(int(p[0]), int(p[1])) for p in spec]  
+
+    raise ValueError("Unsupported polynomial spec format for bivariate terms")
+
+
+def get_BB_matrix(a: Union[Sequence[Tuple[int, int]], np.ndarray], l: int, m: int) -> np.ndarray:
+    """Return the (l*m) x (l*m) binary matrix for polynomial a(x, y).
+
+    The polynomial is specified by exponent pairs for monomials x^i y^j. For
+    each (i, j), contribute kron(shift_x(i), shift_y(j)).
+    """
+    terms = _parse_bivariate_terms(a)
+    A = np.zeros((l * m, l * m), dtype=np.uint8)
+    for (ix, iy) in terms:
+        term = np.kron(_shift_mat(l, ix), _shift_mat(m, iy)).astype(np.uint8)
+        # XOR accumulates modulo-2 for binary matrices in {0,1}
+        A += term
     return A % 2
 
 
-def get_BB_Hx_Hz(a: List[List[int]], b: List[List[int]], l: int, m: int) -> Tuple[np.ndarray, np.ndarray]:
+
+def get_BB_Hx_Hz(
+    a: Union[Sequence[Tuple[int, int]], np.ndarray],
+    b: Union[Sequence[Tuple[int, int]], np.ndarray],
+    l: int,
+    m: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Build BB code Hx, Hz from bivariate polynomials a(x,y), b(x,y).
+
+    Accepts list of exponent pairs [(i, j), ...] or an ndarray of shape (k, 2).
+    """
     A = get_BB_matrix(a, l, m)
     B = get_BB_matrix(b, l, m)
-    Hx = np.concatenate((A, B), axis=1)
-    Hz = np.concatenate((B.T, A.T), axis=1)
+    Hx = np.concatenate((A, B), axis=1).astype(np.uint8)
+    Hz = np.concatenate((B.T, A.T), axis=1).astype(np.uint8)
     return Hx, Hz
 
 
@@ -135,7 +172,11 @@ def plot_ler(p_list: np.ndarray, counts: np.ndarray, title: str, out_path: Path)
 
 def main() -> None:
     # Define a BB code (example from 2308.07915, Table 3)
-    Hx, Hz = get_BB_Hx_Hz([[3], [1, 2]], [[1, 2], [3]], 12, 6)
+    # Example: general bivariate with an xy term
+    a = [(3, 0), (0, 1), (0, 2)]  # x^3 + y + y^2
+    # b = [(2, 0), (1, 1), (0, 2)]  # x^2 + xy + y^2
+    b = [(0, 3), (1, 0), (2, 0)]  # y^3 + x + x^2
+    Hx, Hz = get_BB_Hx_Hz(a, b, 12, 6)
     code = css_code(hx=Hx, hz=Hz, name="BB code")
     code.D = 12  # expected distance, optional
     code.test()
@@ -145,7 +186,7 @@ def main() -> None:
     p_min = 1e-3
     p_max = 1e-2
     p_list = np.logspace(np.log10(p_min), np.log10(p_max), res)
-    cycles = 2  # set to O(d) if desired
+    cycles = 10  # set to O(d) if desired
     iters = np.logspace(5, 2, res, dtype=int)
     seed = 0
     threads = 8

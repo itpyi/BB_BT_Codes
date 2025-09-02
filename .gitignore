@@ -39,3 +39,6 @@ Data/
 
 # Codex
 AGENTS.md
+
+# Jupyter file
+*.ipynb
