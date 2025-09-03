@@ -203,4 +203,32 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+
+    
+    from ldpc.codes import rep_code, hamming_code
+    from bposd.hgp import hgp
+    from circuit_utils import generate_full_circuit
+    d = 3
+    res = 10
+    surface_code = hgp(h1=rep_code(d),h2=rep_code(d))
+    cycles = d
+    circuit_seed = 0
+    rounds = 5
+    p1 = 0.005
+    p_spam = 0.005
+    p2 = 0.01
+    seed = 42
+
+    circuits = generate_full_circuit(
+    surface_code,
+    rounds,
+    p1,
+    p2,
+    p_spam,
+    seed)
+
+
+    print(circuits)
+
+    

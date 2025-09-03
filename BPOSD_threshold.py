@@ -87,11 +87,21 @@ def get_BPOSD_failures(
         if num_shots == 0:
             continue
         output = sampler.sample(shots=num_shots)
+        mx = code.hx.shape[0]
+        k = m + mx
         for i in range(num_shots):
-            # Assemble (rounds+1) syndromes: rounds from ancilla readout + final check.
+            # Parse measurement records: each round has (mx + m) check MRs in order [X then Z].
+            rec = output[i]
+            z_rounds = np.zeros((rounds, m), dtype=int)
+            for r in range(rounds):
+                base = r * k
+                z_rounds[r, :] = rec[base + mx: base + mx + m]
+            # Final data record is at the end
+            data_meas = rec[-n:]
+
             syndromes = np.zeros([rounds + 1, m], dtype=int)
-            syndromes[:rounds] = output[i, :-n].reshape([rounds, m])
-            syndromes[-1] = H @ output[i, -n:] % 2
+            syndromes[:rounds] = z_rounds
+            syndromes[-1] = H @ data_meas % 2
             # Difference syndrome makes time-like edges local in H_dec.
             syndromes[1:] = syndromes[1:] ^ syndromes[:-1]
 
@@ -102,7 +112,7 @@ def get_BPOSD_failures(
             correction = bpd_output.sum(axis=0) % 2
 
             # Apply correction to final data measurement and detect a logical flip.
-            final_state = output[i, -n:] ^ correction
+            final_state = data_meas ^ correction
             if (code.lz @ final_state % 2).any():
                 failures += 1
 

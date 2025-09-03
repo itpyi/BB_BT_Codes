@@ -36,6 +36,7 @@ def get_MWPM_failures(
     """
     H = code.hz.toarray()
     m, n = H.shape
+    mx = code.hx.shape[0]
 
     # Construct spacetime decoding graph as in BPOSD_threshold.
     H_dec = np.kron(np.eye(rounds + 1, dtype=int), H)
@@ -63,10 +64,18 @@ def get_MWPM_failures(
         if num_shots == 0:
             continue
         output = sampler.sample(shots=num_shots)
+        k = m + mx
         for i in range(num_shots):
+            rec = output[i]
+            z_rounds = np.zeros((rounds, m), dtype=int)
+            for r in range(rounds):
+                base = r * k
+                z_rounds[r, :] = rec[base + mx: base + mx + m]
+            data_meas = rec[-n:]
+
             syndromes = np.zeros([rounds + 1, m], dtype=int)
-            syndromes[:rounds] = output[i, :-n].reshape([rounds, m])
-            syndromes[-1] = H @ output[i, -n:] % 2
+            syndromes[:rounds] = z_rounds
+            syndromes[-1] = H @ data_meas % 2
             # Difference syndrome connects time-slices in the graph.
             syndromes[1:] = syndromes[1:] ^ syndromes[:-1]
 
@@ -75,7 +84,7 @@ def get_MWPM_failures(
                 [rounds + 1, n],
             )
             correction = mwpm_output.sum(axis=0) % 2
-            final_state = output[i, -n:] ^ correction
+            final_state = data_meas ^ correction
             if (code.lz @ final_state % 2).any():
                 failures += 1
 

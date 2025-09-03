@@ -36,6 +36,7 @@ coverage.xml
 
 # Data
 Data/
+*.svg
 
 # Codex
 AGENTS.md
