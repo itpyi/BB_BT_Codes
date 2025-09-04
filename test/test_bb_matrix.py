@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 
-from run_BB_code_BPOSD import get_BB_matrix, get_BB_Hx_Hz
+from BB_tools import get_BB_matrix, get_BB_Hx_Hz
 
 
 def shift_mat(n: int, k: int) -> np.ndarray:
