@@ -47,5 +47,6 @@ AGENTS.md
 *.ipynb
 
 test/BB_code_benchmark
+deprecated_code
 
 # sinter_example.py

@@ -169,30 +169,46 @@ def generate_full_circuit(
     # Final: data Z measurement with SPAM, and observables from Z logicals.
     c.append("X_ERROR", data_qubits, p_spam)
     c.append("MR", data_qubits)
-    # OBSERVABLE_INCLUDE for each Z logical operator row
-    # Accept SciPy sparse or NumPy arrays; rows give data-qubit supports.
-    lz_raw = code.lz
-    if issparse(lz_raw):
-        lz_csr = lz_raw if lz_raw.format == "csr" else csr_matrix(lz_raw)
-        k = lz_csr.shape[0]
-        for obs_idx in range(k):
-            supp = lz_csr.getrow(obs_idx).indices.tolist()
-            if supp:
-                recs = [stim.target_rec(-n + q) for q in supp]
-                c.append("OBSERVABLE_INCLUDE", recs, obs_idx)
-    else:
-        lz_arr = np.array(lz_raw)
-        if lz_arr.ndim == 1:
-            supp = np.nonzero(lz_arr)[0].tolist()
-            if supp:
-                recs = [stim.target_rec(-n + q) for q in supp]
-                c.append("OBSERVABLE_INCLUDE", recs, 0)
-        elif lz_arr.ndim == 2:
-            k = lz_arr.shape[0]
-            for obs_idx in range(k):
-                supp = np.nonzero(lz_arr[obs_idx])[0].tolist()
-                if supp:
-                    recs = [stim.target_rec(-n + q) for q in supp]
-                    c.append("OBSERVABLE_INCLUDE", recs, obs_idx)
+    
+    # Add detectors comparing previous Z stabilizers with current data measurements
+    # Each Z stabilizer check should be consistent with the data qubit measurements
+    hz_csr = csr_matrix(code.hz)
+    for z_check_idx in range(mz):
+        # Get the data qubits that participate in this Z stabilizer
+        data_qubits_in_check = hz_csr.getrow(z_check_idx).indices.tolist()
+        
+        if data_qubits_in_check:
+            # Create detector: previous Z measurement XOR current data measurements
+            detector_targets = []
+            
+            # Previous Z stabilizer measurement (from last syndrome round)
+            if rounds > 1:
+                # In repeat structure, Z measurements are at positions -(mx + mz) to -mx - 1
+                detector_targets.append(stim.target_rec(-(mx + mz) - mz + z_check_idx))
+            else:
+                # In single round, Z measurements are at positions -mz to -1
+                detector_targets.append(stim.target_rec(-mz + z_check_idx))
+            
+            # Current data qubit measurements (most recent n measurements)
+            for data_idx in data_qubits_in_check:
+                detector_targets.append(stim.target_rec(-n + data_idx))
+            
+            c.append("DETECTOR", detector_targets)
+    
+    # OBSERVABLE_INCLUDE for each Z logical; assume lz is sparse or coercible.
+    # Coerce to CSR, orient so rows enumerate logical-Z operators.
+    lz_csr = csr_matrix(code.lz)
+    if lz_csr.shape[1] != n and lz_csr.shape[0] == n:
+        lz_csr = lz_csr.T
+    obs_idx = 0
+    indptr = lz_csr.indptr
+    indices = lz_csr.indices
+    for r in range(lz_csr.shape[0]):
+        start, end = indptr[r], indptr[r + 1]
+        supp = indices[start:end].tolist()
+        if supp:
+            recs = [stim.target_rec(-n + q) for q in supp]
+            c.append("OBSERVABLE_INCLUDE", recs, obs_idx)
+            obs_idx += 1
 
     return c
