@@ -245,8 +245,11 @@ def main() -> None:
     b_poly = [(0, 3), (1, 0), (2, 0)]
     l, m = 12, 6
 
-    p_list = [1e-3, 2e-3]
-    rounds_list = [6]
+    p_min = 1e-3
+    p_max = 1e-2
+    num_points = 5
+    p_list = np.logspace(np.log10(p_min), np.log10(p_max), num_points)
+    rounds_list = [8,12]
 
     results = run_BB_multiprocess_simulation(
         a_poly=a_poly,
@@ -256,7 +259,7 @@ def main() -> None:
         p_list=p_list,
         rounds_list=rounds_list,
         max_shots=100,
-        max_errors=10,
+        max_errors=5,
         seed=42,
         bp_iters=10,
         osd_order=0,

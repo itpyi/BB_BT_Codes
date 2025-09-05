@@ -117,36 +117,71 @@ def save_summary_csv(points: List[ResultPoint], path: str) -> None:
 
 
 def plot_points(points: List[ResultPoint], *, out_png: str | None = None, show: bool = False) -> None:
-    # Group by (l,m,decoder) and plot per rounds
+    # Pretty plotting similar to sinter's plot_error_rate with CIs.
+
+    def _wilson_interval(k: int, n: int, z: float = 1.96) -> Tuple[float, float]:
+        if n <= 0:
+            return (0.0, 1.0)
+        p = k / n
+        z2 = z * z
+        denom = 1 + z2 / n
+        centre = (p + z2 / (2 * n)) / denom
+        half = z * ((p * (1 - p) / n + z2 / (4 * n * n)) ** 0.5) / denom
+        lo = max(0.0, centre - half)
+        hi = min(1.0, centre + half)
+        return lo, hi
+
+    # Group by (l,m,decoder)
     by_group: Dict[Tuple[int, int, str], List[ResultPoint]] = {}
     for r in points:
         by_group.setdefault((r.l, r.m, r.decoder), []).append(r)
 
-    for (l, m, dec), pts in by_group.items():
-        import numpy as _np
+    # Style tweaks
+    try:
+        plt.style.use("seaborn-v0_8-whitegrid")
+    except Exception:
+        pass
 
+    markers = ["o", "s", "^", "D", "P", "v", "+", "x", "*", "h"]
+    cmap = plt.get_cmap("tab10")
+
+    for (l, m, dec), pts in by_group.items():
         pts = list(pts)
         fig, ax = plt.subplots(1, 1, figsize=(9, 6))
         by_rounds: Dict[int, List[ResultPoint]] = {}
         for p in pts:
             by_rounds.setdefault(p.rounds, []).append(p)
-        for rounds, rows in sorted(by_rounds.items()):
+
+        for idx, (rounds, rows) in enumerate(sorted(by_rounds.items())):
             rows = sorted(rows, key=lambda x: x.p)
             xs = [r.p for r in rows]
-            ys = [r.ler for r in rows]
-            ax.plot(xs, ys, marker="o", label=f"rounds={rounds}")
+            ys_raw = [r.ler for r in rows]
+            ys = [max(1e-15, y) for y in ys_raw]
+            # Wilson CI shaded band
+            lo_list = []
+            hi_list = []
+            for r in rows:
+                lo, hi = _wilson_interval(r.errors, r.shots)
+                lo_list.append(max(1e-15, lo))
+                hi_list.append(max(1e-15, hi))
+            color = cmap(idx % 10)
+            marker = markers[idx % len(markers)]
+            ax.plot(xs, ys, marker=marker, linestyle="-", color=color, linewidth=1.5, markersize=5, label=f"rounds={rounds}")
+            ax.fill_between(xs, lo_list, hi_list, color=color, alpha=0.15, linewidth=0)
+
         ax.set_xscale("log")
         ax.set_yscale("log")
-        ax.set_xlabel("Physical Error Rate p")
-        ax.set_ylabel("Logical Error Rate (any obs)")
-        ax.set_title(f"BB {l}x{m} ({dec})")
-        ax.grid(True, which="both", ls=":")
-        ax.legend()
-        path = out_png
-        if path is None:
-            path = f"Data/bb_{l}_{m}_parsed_results.png"
+        ax.set_xlabel("Physical error rate p")
+        ax.set_ylabel("Logical error rate")
+        ax.set_title(f"BB {l}×{m} ({dec})")
+        ax.grid(True, which="both", linestyle=":", alpha=0.6)
+        # Tight legend
+        ax.legend(frameon=False, fontsize=10)
+
+        # Save
+        path = out_png or f"Data/bb_{l}_{m}_parsed_results.png"
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        fig.savefig(path, bbox_inches="tight", dpi=150)
+        fig.savefig(path, bbox_inches="tight", dpi=200)
         if show:
             plt.show()
         plt.close(fig)
