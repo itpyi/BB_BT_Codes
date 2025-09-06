@@ -190,6 +190,9 @@ def plot_points(
         for p in pts:
             by_rounds.setdefault(p.rounds, []).append(p)
 
+        plotted_any = False
+        all_x_vals: List[float] = []
+        all_y_vals: List[float] = []
         for idx, (rounds, rows) in enumerate(sorted(by_rounds.items())):
             rows = sorted(rows, key=lambda x: x.p)
             # Filter out zero-error points (no observed errors)
@@ -227,7 +230,31 @@ def plot_points(
             marker = markers[idx % len(markers)]
             ax.plot(xs, ys, marker=marker, linestyle="-", color=color, linewidth=1.5, markersize=5, label=f"rounds={rounds}")
             ax.fill_between(xs, lo_list, hi_list, color=color, alpha=0.15, linewidth=0)
+            plotted_any = True
+            all_x_vals.extend(xs)
+            all_y_vals.extend(ys)
 
+        # If nothing plotted (e.g., all points had zero errors), skip this figure to avoid log-scale errors
+        if not plotted_any:
+            plt.close(fig)
+            continue
+
+        # Ensure positive, finite limits before enabling log scale
+        if not all_x_vals or not all_y_vals:
+            plt.close(fig)
+            continue
+        x_pos = [v for v in all_x_vals if v > 0]
+        y_pos = [v for v in all_y_vals if v > 0]
+        if not x_pos or not y_pos:
+            plt.close(fig)
+            continue
+        x_min = min(x_pos)
+        x_max = max(x_pos)
+        y_min = min(y_pos)
+        y_max = max(y_pos)
+        # Expand slightly to avoid degenerate ranges
+        ax.set_xlim(x_min * 0.9, x_max * 1.1)
+        ax.set_ylim(max(1e-15, y_min * 0.8), y_max * 1.25)
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel("Physical error rate p")

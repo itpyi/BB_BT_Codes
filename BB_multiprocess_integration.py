@@ -27,6 +27,79 @@ from bb_common import (
     plot_points,
     save_summary_csv,
 )
+import csv
+import math
+
+
+def _safe_json_loads(s: str) -> Any:
+    try:
+        return json.loads(s)
+    except Exception:
+        try:
+            return json.loads(s.replace("''", '"').replace('""', '"'))
+        except Exception:
+            return {}
+
+
+def _existing_counts_for_point(resume_csv: Optional[str], *, meta_filter: dict) -> Tuple[int, int]:
+    """Aggregate prior shots/errors from a resume CSV for a specific (meta) point.
+
+    Matches on a strict subset of metadata keys to ensure we only sum rows from the
+    same configuration: a_poly, b_poly, l, m, p, rounds.
+    """
+    if not resume_csv or not os.path.exists(resume_csv):
+        return 0, 0
+    need_keys = ["a_poly", "b_poly", "l", "m", "p", "rounds"]
+    shots = 0
+    errors = 0
+    try:
+        with open(resume_csv, newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    meta = _safe_json_loads(row.get("json_metadata", "{}"))
+                except Exception:
+                    meta = {}
+                ok = True
+                for k in need_keys:
+                    if k not in meta_filter:
+                        ok = False
+                        break
+                    if k not in meta:
+                        ok = False
+                        break
+                    if k in ("l", "m", "rounds"):
+                        try:
+                            if int(meta.get(k)) != int(meta_filter.get(k)):
+                                ok = False
+                                break
+                        except Exception:
+                            ok = False
+                            break
+                    elif k == "p":
+                        try:
+                            pv = float(meta.get(k))
+                            pt = float(meta_filter.get(k))
+                            if not math.isclose(pv, pt, rel_tol=1e-12, abs_tol=1e-15):
+                                ok = False
+                                break
+                        except Exception:
+                            ok = False
+                            break
+                    else:  # a_poly, b_poly as string representations
+                        if str(meta.get(k)) != str(meta_filter.get(k)):
+                            ok = False
+                            break
+                if not ok:
+                    continue
+                try:
+                    shots += int(row.get("shots", 0) or 0)
+                    errors += int(row.get("errors", 0) or 0)
+                except Exception:
+                    continue
+    except Exception:
+        return 0, 0
+    return shots, errors
 
 
 def _append_resume_csv(
@@ -97,15 +170,28 @@ def _worker_run(
 
         dets, obs = sampler.sample(shots=t, separate_observables=True, bit_packed=False)
         batch_errors = 0
+        t_used = 0
         t0 = time.time()
         for i in range(t):
             corr = decoder.decode(dets[i, :])
             pred = (obs_mat @ corr) % 2
+            t_used += 1
             if np.any(pred != obs[i, :]):
                 batch_errors += 1
+            # Early stop if hitting error cap within the batch
+            if max_errors is not None and shared_errors is not None:
+                if lock is not None:
+                    lock.acquire()
+                try:
+                    cur_errors = shared_errors.value
+                finally:
+                    if lock is not None:
+                        lock.release()
+                if cur_errors + batch_errors >= max_errors_eff:
+                    break
         dt = time.time() - t0
 
-        local_shots += t
+        local_shots += t_used
         errors += batch_errors
         seconds_total += dt
 
@@ -114,6 +200,9 @@ def _worker_run(
         try:
             if shared_errors is not None:
                 shared_errors.value += batch_errors
+            # Refund unused reserved shots if we stopped early
+            if shared_shots is not None and t_used < t:
+                shared_shots.value -= (t - t_used)
         finally:
             if lock is not None:
                 lock.release()
@@ -121,7 +210,7 @@ def _worker_run(
         if resume_csv:
             _append_resume_csv(
                 resume_csv,
-                shots=t,
+                shots=t_used,
                 errors=batch_errors,
                 seconds=dt,
                 decoder="bposd",
@@ -197,9 +286,23 @@ def run_BB_multiprocess_simulation(
                 "rounds": int(rounds),
             }
 
-            # Shared counters across workers for early stopping
-            shared_shots = manager.Value('i', 0)
-            shared_errors = manager.Value('i', 0)
+            # Check resume CSV for existing totals for this point
+            existing_shots, existing_errors = _existing_counts_for_point(resume_csv, meta_filter=meta)
+
+            # Determine effective caps
+            max_shots_eff = int(max_shots) if max_shots is not None else 1_000_000_000
+            max_errors_eff = int(max_errors) if max_errors is not None else 1_000_000_000
+
+            # If already at/over caps from resume data, skip running workers
+            if existing_shots >= max_shots_eff or existing_errors >= max_errors_eff:
+                print(f"[MP] rounds={rounds} p={p:.4g} already complete in resume (shots={existing_shots}, errors={existing_errors}); skipping.")
+                # Append a zero-work result for traceability of walltime 0
+                results.append(ResultPoint(decoder="bposd", l=l, m=m, rounds=rounds, p=p, shots=0, errors=0, seconds=0.0))
+                continue
+
+            # Shared counters across workers for early stopping, seeded from resume
+            shared_shots = manager.Value('i', int(existing_shots))
+            shared_errors = manager.Value('i', int(existing_errors))
 
             w = max(1, int(num_workers))
             args = [{
@@ -225,7 +328,9 @@ def run_BB_multiprocess_simulation(
             errors = sum(o[1] for o in outs)
             # seconds_total here is wall time dt; workers' sum of seconds is CPU work
             results.append(ResultPoint(decoder="bposd", l=l, m=m, rounds=rounds, p=p, shots=shots_done, errors=errors, seconds=dt))
-            print(f"[MP] rounds={rounds} p={p:.4g} shots={shots_done} errors={errors} LER={errors/max(1,shots_done):.3g} wall={dt:.2f}s")
+            total_shots = existing_shots + shots_done
+            total_errors = existing_errors + errors
+            print(f"[MP] rounds={rounds} p={p:.4g} shots+={shots_done} (total={total_shots}) errors+={errors} (total={total_errors}) LER_batch={errors/max(1,shots_done):.3g} wall={dt:.2f}s")
 
     # Clean up manager
     manager.shutdown()
@@ -251,10 +356,9 @@ def main() -> None:
 
     p_min = 1e-3
     p_max = 7e-3
-    num_points = 1
+    num_points = 2
     p_list = np.logspace(np.log10(p_min), np.log10(p_max), num_points)
-    rounds_list = [8]
-    # rounds_list = [8,12]
+    rounds_list = [8,12]
 
     # results = run_BB_multiprocess_simulation(
     #     a_poly=a_poly,
@@ -279,8 +383,8 @@ def main() -> None:
         m=m,
         p_list=p_list,
         rounds_list=rounds_list,
-        max_shots=100,
-        max_errors=10,
+        max_shots=1000,
+        max_errors=4,
         seed=42,
         bp_iters=10,
         osd_order=0,
@@ -288,9 +392,14 @@ def main() -> None:
         resume_csv=f"Data/bb_{l}_{m}_mp_resume.csv",
         resume_every=50,
     )
+    # Aggregate from resume CSV for full totals (including previous runs)
+    from BB_parse_and_plot import load_resume_csv
+
+    resume_path = f"Data/bb_{l}_{m}_mp_resume.csv"
+    aggregated = load_resume_csv([resume_path])
 
     save_csv(
-        results,
+        aggregated if aggregated else results,
         f"Data/bb_{l}_{m}_mp_results.csv",
         meta_common={
             "a_poly": str(a_poly),
@@ -301,10 +410,11 @@ def main() -> None:
             "m": int(m),
         },
     )
-    # Generate three plots: LER, per-logical (using K), and per-round
-    plot_points(results, out_png=f"Data/bb_{l}_{m}_mp_results.png", show=False, y_mode="ler")
-    plot_points(results, out_png=f"Data/bb_{l}_{m}_mp_results_per_logical.png", show=False, y_mode="per_logical", K=int(code_meta.K))
-    plot_points(results, out_png=f"Data/bb_{l}_{m}_mp_results_per_round.png", show=False, y_mode="per_round")
+    # Generate three plots from aggregated points when available; otherwise from this run's results
+    plot_src = aggregated if aggregated else results
+    plot_points(plot_src, out_png=f"Data/bb_{l}_{m}_mp_results.png", show=False, y_mode="ler")
+    plot_points(plot_src, out_png=f"Data/bb_{l}_{m}_mp_results_per_logical.png", show=False, y_mode="per_logical", K=int(code_meta.K))
+    plot_points(plot_src, out_png=f"Data/bb_{l}_{m}_mp_results_per_round.png", show=False, y_mode="per_round")
 
 
 if __name__ == "__main__":
