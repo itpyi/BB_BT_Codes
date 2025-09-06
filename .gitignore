@@ -36,9 +36,18 @@ coverage.xml
 
 # Data
 Data/
+*.svg
+*.png
+*.csv
 
 # Codex
 AGENTS.md
 
 # Jupyter file
 *.ipynb
+
+test/BB_code_benchmark
+deprecated_code
+Review_report.md
+
+# sinter_example.py

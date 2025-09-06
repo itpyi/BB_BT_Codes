@@ -1,0 +1,20 @@
+{
+  "description": "BB code threshold estimation with larger parameters",
+  "a_poly": [[3, 0], [0, 1], [0, 2]],
+  "b_poly": [[0, 3], [1, 0], [2, 0]],
+  "l": 12,
+  "m": 6,
+  "p_range": {
+    "min": 0.0005,
+    "max": 0.01,
+    "num_points": 8
+  },
+  "rounds_list": [8, 12, 16],
+  "max_shots": 50000,
+  "max_errors": 100,
+  "seed": 123,
+  "bp_iters": 20,
+  "osd_order": 0,
+  "num_workers": 8,
+  "resume_every": 500
+}

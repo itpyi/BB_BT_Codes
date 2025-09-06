@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 
-from run_BB_code_BPOSD import get_BB_matrix, get_BB_Hx_Hz
+from bivariate_bicycle_codes import get_BB_matrix, get_BB_Hx_Hz
 
 
 def shift_mat(n: int, k: int) -> np.ndarray:
@@ -16,9 +16,9 @@ class TestBBMatrix(unittest.TestCase):
         A = get_BB_matrix(pairs, l, m)
 
         expected = (
-            np.kron(shift_mat(l, 2), np.eye(m, dtype=int)) +
-            np.kron(shift_mat(l, 1), shift_mat(m, 1)) +
-            np.kron(np.eye(l, dtype=int), shift_mat(m, 2))
+            np.kron(shift_mat(l, 2), np.eye(m, dtype=int))
+            + np.kron(shift_mat(l, 1), shift_mat(m, 1))
+            + np.kron(np.eye(l, dtype=int), shift_mat(m, 2))
         ) % 2
 
         self.assertEqual(A.shape, (l * m, l * m))

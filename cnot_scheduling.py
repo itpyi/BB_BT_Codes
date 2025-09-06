@@ -70,9 +70,10 @@ def edge_color_bipartite(bipartite_graph: nx.Graph) -> List[Set[EdgeTuple]]:
             # colors along the alternating path to free both endpoints in u_set.
             def filter_edge(u, v, key=None):
                 edge = (u, v) if key is None else (u, v, key)
-                return _canonicalize_edge(edge) in u_set.edges or _canonicalize_edge(
-                    edge
-                ) in v_set.edges
+                return (
+                    _canonicalize_edge(edge) in u_set.edges
+                    or _canonicalize_edge(edge) in v_set.edges
+                )
 
             uv_subgraph = nx.subgraph_view(
                 G,

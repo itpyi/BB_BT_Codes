@@ -7,7 +7,6 @@ If a logical flips, records the weight; returns the minimum observed.
 import numpy as np
 from scipy.sparse import csr_matrix
 from ldpc import BpOsdDecoder
-from ldpc.bplsd_decoder import BpLsdDecoder
 from typing import Sequence, Protocol, Any
 
 
@@ -50,15 +49,6 @@ def get_min_logical_weight(
         bp_method="minimum_sum",
         osd_method="osd_cs",
         osd_order=osd_order,
-    )
-    bplsd = BpLsdDecoder(
-        H,
-        error_rate=p,
-        max_iter=bp_iters,
-        bp_method="minimum_sum",
-        osd_method="lsd_cs",
-        bits_per_step=5,
-        osd_order=0,
     )
 
     min_weight = n
