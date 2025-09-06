@@ -1,12 +1,12 @@
 {
-  "description": "Small TT (Trivariate Tricycle) code test",
+  "description": "Working TT code [72, 9] with corrected inverse polynomials (l,m,n)=(2,3,4)",
   "code_type": "TT",
-  "a_poly": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-  "b_poly": [[2, 0, 0], [0, 2, 0], [0, 0, 2]],
-  "c_poly": [[1, 1, 0], [0, 1, 1]],
+  "a_poly": [[0, 2, 2], [1, 0, 3], [1, 2, 2], [1, 1, 3]],
+  "b_poly": [[0, 2, 0], [1, 0, 3], [0, 2, 2], [1, 2, 1]],
+  "c_poly": [[0, 2, 0], [0, 2, 1], [1, 2, 2], [1, 1, 3]],
   "l": 2,
-  "m": 2,
-  "n": 3,
+  "m": 3,
+  "n": 4,
   "p_range": {
     "min": 0.001,
     "max": 0.01,

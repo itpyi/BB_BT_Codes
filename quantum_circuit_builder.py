@@ -216,5 +216,10 @@ def generate_full_circuit(
             recs = [stim.target_rec(-n + q) for q in supp]
             c.append("OBSERVABLE_INCLUDE", recs, obs_idx)
             obs_idx += 1
+    
+    # diagram = c.diagram('detslice-with-ops-svg', tick=range(0, 5), filter_coords=['D265', 'D268', 'D278', 'D279'])
+    # # Convert diagram object to string before writing
+    # with open("circuit_debug_diagram.svg", "w") as f:
+    #     f.write(str(diagram))
 
     return c
