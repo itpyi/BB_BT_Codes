@@ -47,6 +47,109 @@ def build_bb_code(a_poly: list, b_poly: list, l: int, m: int) -> css_code:
     return code
 
 
+def build_bt_code(a_poly: list, b_poly: list, c_poly: list, l: int, m: int) -> css_code:
+    from bivariate_tricycle_codes import get_BT_Hx_Hz  # local import to avoid cycles
+
+    Hx, Hz = get_BT_Hx_Hz(a_poly, b_poly, c_poly, l, m)
+    code = css_code(hx=Hx, hz=Hz, name=f"BT_{l}x{m}")
+    code.test()
+    return code
+
+
+def build_tt_code(a_poly: list, b_poly: list, c_poly: list, l: int, m: int, n: int) -> css_code:
+    from trivariate_tricycle_codes import get_TT_Hx_Hz  # local import to avoid cycles
+
+    Hx, Hz = get_TT_Hx_Hz(a_poly, b_poly, c_poly, l, m, n)
+    code = css_code(hx=Hx, hz=Hz, name=f"TT_{l}x{m}x{n}")
+    code.test()
+    return code
+
+
+def build_code_generic(code_type: str, **params) -> css_code:
+    """Generic code builder dispatcher.
+    
+    Args:
+        code_type: "BB", "BT", or "TT"
+        **params: Code-specific parameters
+        
+    Returns:
+        Constructed CSS code
+        
+    Raises:
+        ValueError: If code_type is unknown or required parameters are missing
+    """
+    code_type = code_type.upper()
+    
+    if code_type == "BB":
+        required = {"a_poly", "b_poly", "l", "m"}
+        if not required.issubset(params.keys()):
+            raise ValueError(f"BB code requires parameters: {required}")
+        return build_bb_code(params["a_poly"], params["b_poly"], params["l"], params["m"])
+    
+    elif code_type == "BT":
+        required = {"a_poly", "b_poly", "c_poly", "l", "m"}
+        if not required.issubset(params.keys()):
+            raise ValueError(f"BT code requires parameters: {required}")
+        return build_bt_code(params["a_poly"], params["b_poly"], params["c_poly"], params["l"], params["m"])
+    
+    elif code_type == "TT":
+        required = {"a_poly", "b_poly", "c_poly", "l", "m", "n"}
+        if not required.issubset(params.keys()):
+            raise ValueError(f"TT code requires parameters: {required}")
+        return build_tt_code(params["a_poly"], params["b_poly"], params["c_poly"], params["l"], params["m"], params["n"])
+    
+    else:
+        raise ValueError(f"Unknown code type: {code_type}. Supported types: BB, BT, TT")
+
+
+def generate_default_resume_csv(code_type: str, output_dir: str, runner_type: str, **params) -> str:
+    """Generate default resume CSV filename based on code type and parameters.
+    
+    Args:
+        code_type: "BB", "BT", or "TT"
+        output_dir: Output directory
+        runner_type: "serial" or "mp" 
+        **params: Code parameters (l, m, n, etc.)
+        
+    Returns:
+        Default resume CSV path
+    """
+    code_type = code_type.lower()
+    
+    if code_type == "bb":
+        return f"{output_dir}/bb_{params['l']}_{params['m']}_{runner_type}_resume.csv"
+    elif code_type == "bt":
+        return f"{output_dir}/bt_{params['l']}_{params['m']}_{runner_type}_resume.csv"
+    elif code_type == "tt":
+        return f"{output_dir}/tt_{params['l']}_{params['m']}_{params['n']}_{runner_type}_resume.csv"
+    else:
+        raise ValueError(f"Unknown code type: {code_type}")
+
+
+def extract_code_params_from_config(config: dict) -> Tuple[str, dict]:
+    """Extract code type and parameters from configuration.
+    
+    Returns:
+        Tuple of (code_type, code_params_dict)
+    """
+    code_type = config.get('code_type', 'BB').upper()
+    
+    code_params = {
+        'a_poly': config['a_poly'],
+        'b_poly': config['b_poly'],
+        'l': config['l'],
+        'm': config['m'],
+    }
+    
+    if code_type in ['BT', 'TT']:
+        code_params['c_poly'] = config['c_poly']
+    
+    if code_type == 'TT':
+        code_params['n'] = config['n']
+        
+    return code_type, code_params
+
+
 def build_decoder_from_circuit(
     circuit: stim.Circuit, *, bp_iters: int, osd_order: int
 ) -> Tuple[BpOsdDecoder, np.ndarray]:

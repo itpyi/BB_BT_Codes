@@ -1,5 +1,6 @@
 {
-  "description": "Small BB code test configuration for quick verification",
+  "description": "Small BB code test - updated for generic framework",
+  "code_type": "BB",
   "a_poly": [[3, 0], [0, 1], [0, 2]],
   "b_poly": [[0, 3], [1, 0], [2, 0]],
   "l": 6,
@@ -10,12 +11,11 @@
     "num_points": 3
   },
   "rounds_list": [6, 8],
-  "max_shots": 1000,
+  "max_shots": 300,
   "max_errors": 10,
   "seed": 42,
-  "bp_iters": 10,
+  "bp_iters": 20,
   "osd_order": 0,
   "num_workers": 2,
-  "resume_every": 100,
-  "resume_csv": "Data/bb_6_6_test_resume.csv"
+  "resume_every": 100
 }

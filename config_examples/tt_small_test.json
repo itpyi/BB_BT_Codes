@@ -1,0 +1,23 @@
+{
+  "description": "Small TT (Trivariate Tricycle) code test",
+  "code_type": "TT",
+  "a_poly": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+  "b_poly": [[2, 0, 0], [0, 2, 0], [0, 0, 2]],
+  "c_poly": [[1, 1, 0], [0, 1, 1]],
+  "l": 2,
+  "m": 2,
+  "n": 3,
+  "p_range": {
+    "min": 0.001,
+    "max": 0.01,
+    "num_points": 3
+  },
+  "rounds_list": [3, 4],
+  "max_shots": 300,
+  "max_errors": 5,
+  "seed": 42,
+  "bp_iters": 20,
+  "osd_order": 0,
+  "num_workers": 2,
+  "resume_every": 30
+}
