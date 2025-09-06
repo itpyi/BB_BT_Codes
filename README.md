@@ -16,8 +16,8 @@ This project simulates BB quantum LDPC codes to measure their logical error rate
 - `simulation_multiprocess.py` - Multi-process simulations
 - `results_parser_plotter.py` - Parse results and generate plots
 - `quantum_circuit_builder.py` - Build quantum circuits
-- `simulation_common.py` - Shared utilities
-- `shared_utilities.py` - Helper functions
+- `qec_simulation_core.py` - Core QEC simulation functionality
+- `file_io_utils.py` - File I/O and parsing utilities
 
 ## Usage
 
@@ -80,4 +80,4 @@ python -m mypy .
 - [ZSZ-codes-numerics](https://github.com/yifanhong/ZSZ-codes-numerics)
 - [Stim](https://github.com/quantumlib/Stim) - Quantum circuit simulation
 - [LDPC](https://github.com/quantumgizmos/ldpc) - BP+OSD decoding
-- Bivariate Bicycle codes: [arXiv:2203.16958](https://arxiv.org/abs/2203.16958)
+- Bivariate Bicycle codes: [arXiv:2308.07915](https://arxiv.org/abs/2308.07915)

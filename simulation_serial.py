@@ -21,7 +21,7 @@ import numpy as np
 import stim
 from matplotlib import pyplot as plt
 
-from simulation_common import (
+from qec_simulation_core import (
     ResultPoint,
     build_bb_code,
     build_decoder_from_circuit,
@@ -29,7 +29,7 @@ from simulation_common import (
     save_summary_csv,
     plot_points,
 )
-from shared_utilities import (
+from file_io_utils import (
     safe_json_loads,
     existing_counts_for_point,
     DEFAULT_MAX_SHOTS,

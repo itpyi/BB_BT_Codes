@@ -19,7 +19,7 @@ from typing import Dict, Iterable, List, Tuple
 
 from typing import Any
 import re
-from simulation_common import ResultPoint, plot_points
+from qec_simulation_core import ResultPoint, plot_points
 
 
 def _try_load_json(s: str) -> Any:

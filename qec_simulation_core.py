@@ -1,7 +1,8 @@
-"""Shared utilities for BB code simulations (serial and multiprocess).
+"""Core utilities for quantum error correction code simulations.
 
 Provides common data structures, code/decoder builders, CSV helpers, and
-plotting so scripts stay small and consistent.
+plotting functionality. Supports BB (Bivariate Bicycle), BT (Bivariate Tricycle),
+TT (Trivariate Tricycle) and other quantum LDPC codes.
 """
 
 from __future__ import annotations
