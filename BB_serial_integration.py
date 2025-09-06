@@ -126,8 +126,8 @@ def plot_results(results: List[ResultPoint], *, out_png: str | None = None, show
     plot_points(results, out_png=out_png, show=show)
 
 
-def save_csv(results: List[ResultPoint], path: str) -> None:
-    save_summary_csv(results, path)
+def save_csv(results: List[ResultPoint], path: str, *, meta_common: Optional[dict] = None) -> None:
+    save_summary_csv(results, path, meta_common=meta_common)
 
 
 def main() -> None:
@@ -156,7 +156,16 @@ def main() -> None:
         resume_every=10,
     )
 
-    save_csv(results, f"Data/bb_{l}_{m}_serial_results.csv")
+    save_csv(
+        results,
+        f"Data/bb_{l}_{m}_serial_results.csv",
+        meta_common={
+            "a_poly": str(a_poly),
+            "b_poly": str(b_poly),
+            "code_k": int(code.K) if 'code' in locals() else None,
+            "code_n": int(code.N) if 'code' in locals() else None,
+        },
+    )
     plot_results(results, out_png=f"Data/bb_{l}_{m}_serial_results.png", show=False)
 
 

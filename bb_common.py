@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import json
+import csv
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple, Dict, Any, Protocol
 
@@ -83,23 +84,37 @@ def append_resume_csv(
     lock: Optional[_LockLike] = None,
 ) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    header = (
-        "shots,errors,discards,seconds,decoder,json_metadata,custom_counts\n"
-    )
+    header = [
+        "shots",
+        "errors",
+        "discards",
+        "seconds",
+        "decoder",
+        "json_metadata",
+        "custom_counts",
+    ]
     if lock is not None:
         try:
             lock.acquire()
         except Exception:
             pass
     try:
-        if not os.path.exists(path) or os.path.getsize(path) == 0:
-            with open(path, "w") as f:
-                f.write(header)
-        meta_json = json.dumps(json_metadata, separators=(",", ":"))
-        counts_json = json.dumps(custom_counts or {}, separators=(",", ":"))
-        line = f"{shots},{errors},0,{seconds:.6g},{decoder},\"{meta_json}\",\"{counts_json}\"\n"
-        with open(path, "a") as f:
-            f.write(line)
+        file_exists = os.path.exists(path) and os.path.getsize(path) > 0
+        with open(path, "a", newline="") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(header)
+            meta_json = json.dumps(json_metadata, separators=(",", ":"))
+            counts_json = json.dumps(custom_counts or {}, separators=(",", ":"))
+            writer.writerow([
+                int(shots),
+                int(errors),
+                0,
+                float(seconds),
+                str(decoder),
+                meta_json,
+                counts_json,
+            ])
     finally:
         if lock is not None:
             try:
@@ -108,16 +123,39 @@ def append_resume_csv(
                 pass
 
 
-def save_summary_csv(points: List[ResultPoint], path: str) -> None:
+def save_summary_csv(points: List[ResultPoint], path: str, *, meta_common: Optional[Dict[str, Any]] = None) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w") as f:
-        f.write("p,rounds,shots,errors,ler,seconds\n")
+    header = ["p", "rounds", "shots", "errors", "ler", "seconds", "decoder", "json_metadata"]
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
         for r in points:
-            f.write(f"{r.p},{r.rounds},{r.shots},{r.errors},{r.ler},{r.seconds}\n")
+            meta = {
+                "l": int(r.l),
+                "m": int(r.m),
+                "p": float(r.p),
+                "rounds": int(r.rounds),
+            }
+            if meta_common:
+                meta.update(meta_common)
+            writer.writerow([
+                r.p,
+                r.rounds,
+                r.shots,
+                r.errors,
+                r.ler,
+                r.seconds,
+                r.decoder,
+                json.dumps(meta, separators=(",", ":")),
+            ])
 
 
-def plot_points(points: List[ResultPoint], *, out_png: str | None = None, show: bool = False) -> None:
+def plot_points(
+    points: List[ResultPoint], *, out_png: str | None = None, show: bool = False,
+    y_mode: str = "ler", K: int | None = None
+) -> None:
     # Pretty plotting similar to sinter's plot_error_rate with CIs.
+    # y_mode: 'ler' (default), 'per_logical', or 'per_round'.
 
     def _wilson_interval(k: int, n: int, z: float = 1.96) -> Tuple[float, float]:
         if n <= 0:
@@ -154,16 +192,37 @@ def plot_points(points: List[ResultPoint], *, out_png: str | None = None, show: 
 
         for idx, (rounds, rows) in enumerate(sorted(by_rounds.items())):
             rows = sorted(rows, key=lambda x: x.p)
-            xs = [r.p for r in rows]
-            ys_raw = [r.ler for r in rows]
-            ys = [max(1e-15, y) for y in ys_raw]
-            # Wilson CI shaded band
+            # Filter out zero-error points (no observed errors)
+            rows_nonzero = [r for r in rows if r.errors > 0]
+            if not rows_nonzero:
+                # Nothing to plot for this rounds group
+                continue
+            xs = [r.p for r in rows_nonzero]
+
+            # Transform function for selected y_mode
+            def _transform(p_any: float, r_rounds: int) -> float:
+                if y_mode == "ler":
+                    return p_any
+                if y_mode == "per_round":
+                    rr = max(1, int(r_rounds) if r_rounds and r_rounds > 0 else 1)
+                    return 1.0 - (1.0 - p_any) ** (1.0 / rr)
+                if y_mode == "per_logical":
+                    if not K or K <= 0:
+                        raise ValueError("K must be a positive integer for y_mode='per_logical'.")
+                    return 1.0 - (1.0 - p_any) ** (1.0 / K)
+                raise ValueError(f"Unknown y_mode: {y_mode}")
+
+            ys = [_transform(r.ler, rounds) for r in rows_nonzero]
+
+            # Wilson CI shaded band (transform bounds through monotonic mapping)
             lo_list = []
             hi_list = []
-            for r in rows:
+            for r in rows_nonzero:
                 lo, hi = _wilson_interval(r.errors, r.shots)
-                lo_list.append(max(1e-15, lo))
-                hi_list.append(max(1e-15, hi))
+                lo_t = max(1e-15, _transform(lo, rounds))
+                hi_t = max(1e-15, _transform(hi, rounds))
+                lo_list.append(lo_t)
+                hi_list.append(hi_t)
             color = cmap(idx % 10)
             marker = markers[idx % len(markers)]
             ax.plot(xs, ys, marker=marker, linestyle="-", color=color, linewidth=1.5, markersize=5, label=f"rounds={rounds}")
@@ -172,14 +231,42 @@ def plot_points(points: List[ResultPoint], *, out_png: str | None = None, show: 
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel("Physical error rate p")
-        ax.set_ylabel("Logical error rate")
+        y_label = {
+            "ler": "Logical error rate",
+            "per_logical": "Per-logical-operator error rate",
+            "per_round": "Per-round error rate",
+        }.get(y_mode, "Logical error rate")
+        ax.set_ylabel(y_label)
         ax.set_title(f"BB {l}×{m} ({dec})")
         ax.grid(True, which="both", linestyle=":", alpha=0.6)
         # Tight legend
         ax.legend(frameon=False, fontsize=10)
 
+        # Definition text inside plot
+        def_text = None
+        if y_mode == "per_logical":
+            def_text = f"p_single = 1 - (1 - p_any)^(1/K), K={K}"
+        elif y_mode == "per_round":
+            def_text = "p_round = 1 - (1 - p_shot)^(1/r), r = rounds"
+        if def_text:
+            ax.text(
+                0.02,
+                0.02,
+                def_text,
+                transform=ax.transAxes,
+                ha="left",
+                va="bottom",
+                fontsize=9,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7, edgecolor="none"),
+            )
+
         # Save
-        path = out_png or f"Data/bb_{l}_{m}_parsed_results.png"
+        # Include y_mode suffix in default filename to distinguish variants
+        if out_png:
+            path = out_png
+        else:
+            suffix = {"ler": "parsed_results", "per_logical": "per_logical", "per_round": "per_round"}.get(y_mode, "parsed_results")
+            path = f"Data/bb_{l}_{m}_{suffix}.png"
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         fig.savefig(path, bbox_inches="tight", dpi=200)
         if show:

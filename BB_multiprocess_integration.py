@@ -236,21 +236,42 @@ def plot_results(results: List[ResultPoint], *, out_png: str | None = None, show
     plot_points(results, out_png=out_png, show=show)
 
 
-def save_csv(results: List[ResultPoint], path: str) -> None:
-    save_summary_csv(results, path)
+def save_csv(results: List[ResultPoint], path: str, *, meta_common: Optional[dict] = None) -> None:
+    save_summary_csv(results, path, meta_common=meta_common)
 
 
 def main() -> None:
     a_poly = [(3, 0), (0, 1), (0, 2)]
     b_poly = [(0, 3), (1, 0), (2, 0)]
-    l, m = 12, 6
+    # l, m = 12, 6
+    l, m = 6, 6
+
+    # Build code once for metadata and K used in per-logical plots
+    code_meta = build_bb_code(a_poly, b_poly, l, m)
 
     p_min = 1e-3
-    p_max = 1e-2
-    num_points = 5
+    p_max = 7e-3
+    num_points = 1
     p_list = np.logspace(np.log10(p_min), np.log10(p_max), num_points)
-    rounds_list = [8,12]
+    rounds_list = [8]
+    # rounds_list = [8,12]
 
+    # results = run_BB_multiprocess_simulation(
+    #     a_poly=a_poly,
+    #     b_poly=b_poly,
+    #     l=l,
+    #     m=m,
+    #     p_list=p_list,
+    #     rounds_list=rounds_list,
+    #     max_shots=10000,
+    #     max_errors=30,
+    #     seed=42,
+    #     bp_iters=10,
+    #     osd_order=0,
+    #     num_workers=8,
+    #     resume_csv=f"Data/bb_{l}_{m}_mp_resume.csv",
+    #     resume_every=50,
+    # )
     results = run_BB_multiprocess_simulation(
         a_poly=a_poly,
         b_poly=b_poly,
@@ -259,17 +280,31 @@ def main() -> None:
         p_list=p_list,
         rounds_list=rounds_list,
         max_shots=100,
-        max_errors=5,
+        max_errors=10,
         seed=42,
         bp_iters=10,
         osd_order=0,
-        num_workers=2,
+        num_workers=1,
         resume_csv=f"Data/bb_{l}_{m}_mp_resume.csv",
-        resume_every=10,
+        resume_every=50,
     )
 
-    save_csv(results, f"Data/bb_{l}_{m}_mp_results.csv")
-    plot_results(results, out_png=f"Data/bb_{l}_{m}_mp_results.png", show=False)
+    save_csv(
+        results,
+        f"Data/bb_{l}_{m}_mp_results.csv",
+        meta_common={
+            "a_poly": str(a_poly),
+            "b_poly": str(b_poly),
+            "code_k": int(code_meta.K),
+            "code_n": int(code_meta.N),
+            "l": int(l),
+            "m": int(m),
+        },
+    )
+    # Generate three plots: LER, per-logical (using K), and per-round
+    plot_points(results, out_png=f"Data/bb_{l}_{m}_mp_results.png", show=False, y_mode="ler")
+    plot_points(results, out_png=f"Data/bb_{l}_{m}_mp_results_per_logical.png", show=False, y_mode="per_logical", K=int(code_meta.K))
+    plot_points(results, out_png=f"Data/bb_{l}_{m}_mp_results_per_round.png", show=False, y_mode="per_round")
 
 
 if __name__ == "__main__":
