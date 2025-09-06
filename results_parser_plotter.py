@@ -19,7 +19,7 @@ from typing import Dict, Iterable, List, Tuple
 
 from typing import Any
 import re
-from bb_common import ResultPoint, plot_points
+from simulation_common import ResultPoint, plot_points
 
 
 def _try_load_json(s: str) -> Any:
@@ -56,7 +56,16 @@ def load_resume_csv(paths: Iterable[str]) -> List[ResultPoint]:
                 m = int(meta.get("m", -1))
                 key = (decoder, l, m, rounds, p)
                 if key not in by_key:
-                    by_key[key] = ResultPoint(decoder=decoder, l=l, m=m, rounds=rounds, p=p, shots=0, errors=0, seconds=0.0)
+                    by_key[key] = ResultPoint(
+                        decoder=decoder,
+                        l=l,
+                        m=m,
+                        rounds=rounds,
+                        p=p,
+                        shots=0,
+                        errors=0,
+                        seconds=0.0,
+                    )
                 pt = by_key[key]
                 pt.shots += shots
                 pt.errors += errors
@@ -77,7 +86,8 @@ def infer_K_from_csvs(paths: Iterable[str]) -> int | None:
             with open(path, newline="") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    raw = row.get("json_metadata", "{}"); meta = _try_load_json(raw)
+                    raw = row.get("json_metadata", "{}")
+                    meta = _try_load_json(raw)
                     if isinstance(meta, dict) and "code_k" in meta:
                         try:
                             Ks.add(int(meta["code_k"]))
@@ -98,7 +108,9 @@ def infer_K_from_csvs(paths: Iterable[str]) -> int | None:
     return None
 
 
-def load_summary_csv(paths: Iterable[str], *, decoder: str = "bposd") -> List[ResultPoint]:
+def load_summary_csv(
+    paths: Iterable[str], *, decoder: str = "bposd"
+) -> List[ResultPoint]:
     out: List[ResultPoint] = []
     for path in paths:
         if not os.path.exists(path):
@@ -116,18 +128,48 @@ def load_summary_csv(paths: Iterable[str], *, decoder: str = "bposd") -> List[Re
                 meta = _try_load_json(row.get("json_metadata", "{}"))
                 l_eff = int(meta.get("l", -1) or -1)
                 m_eff = int(meta.get("m", -1) or -1)
-                out.append(ResultPoint(decoder=decoder, l=l_eff, m=m_eff, rounds=rounds, p=p, shots=shots, errors=errors, seconds=seconds))
+                out.append(
+                    ResultPoint(
+                        decoder=decoder,
+                        l=l_eff,
+                        m=m_eff,
+                        rounds=rounds,
+                        p=p,
+                        shots=shots,
+                        errors=errors,
+                        seconds=seconds,
+                    )
+                )
     return out
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Parse BB resume/summary CSVs and plot error rates vs p.")
-    parser.add_argument("--resume", nargs="*", default=[], help="Paths to resume CSV files to aggregate.")
-    parser.add_argument("--summary", nargs="*", default=[], help="Paths to summary CSV files to load.")
-    parser.add_argument("--out", default=None, help="Output plot path. For multiple modes, suffixes are added unless separate calls are made.")
+    parser = argparse.ArgumentParser(
+        description="Parse BB resume/summary CSVs and plot error rates vs p."
+    )
+    parser.add_argument(
+        "--resume",
+        nargs="*",
+        default=[],
+        help="Paths to resume CSV files to aggregate.",
+    )
+    parser.add_argument(
+        "--summary", nargs="*", default=[], help="Paths to summary CSV files to load."
+    )
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="Output plot path. For multiple modes, suffixes are added unless separate calls are made.",
+    )
     parser.add_argument("--show", action="store_true", help="Show plots interactively.")
     # l, m, K are inferred from CSV metadata
-    parser.add_argument("--modes", nargs="*", default=["ler"], choices=["ler", "per_logical", "per_round", "all"], help="Which modes to plot: ler, per_logical, per_round, or all.")
+    parser.add_argument(
+        "--modes",
+        nargs="*",
+        default=["ler"],
+        choices=["ler", "per_logical", "per_round", "all"],
+        help="Which modes to plot: ler, per_logical, per_round, or all.",
+    )
     args = parser.parse_args()
 
     points: List[ResultPoint] = []
@@ -161,10 +203,16 @@ def main() -> None:
         out_path = args.out
         suffix = None
         if args.out is not None and len(modes) > 1:
-            suffix = {"ler": "ler", "per_logical": "per_logical", "per_round": "per_round"}.get(mode, mode)
+            suffix = {
+                "ler": "ler",
+                "per_logical": "per_logical",
+                "per_round": "per_round",
+            }.get(mode, mode)
             out_path = out_with_suffix(args.out, suffix)
         try:
-            plot_points(points, out_png=out_path, show=args.show, y_mode=mode, K=inferred_K)
+            plot_points(
+                points, out_png=out_path, show=args.show, y_mode=mode, K=inferred_K
+            )
         except ValueError as e:
             # Likely missing K for per_logical
             print(f"Skipping mode '{mode}': {e}")

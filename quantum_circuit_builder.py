@@ -8,7 +8,7 @@ Two entry points:
 """
 
 import numpy as np
-from edge_coloring import edge_color_bipartite
+from cnot_scheduling import edge_color_bipartite
 import stim
 from networkx import relabel_nodes
 from networkx.algorithms import bipartite
@@ -147,8 +147,10 @@ def generate_full_circuit(
             body.append(
                 "DETECTOR",
                 [
-                    stim.target_rec(-mz + j),                       # current Z (last mz)
-                    stim.target_rec(-(mx + mz) - mz + j),          # previous Z (last mz of prev block)
+                    stim.target_rec(-mz + j),  # current Z (last mz)
+                    stim.target_rec(
+                        -(mx + mz) - mz + j
+                    ),  # previous Z (last mz of prev block)
                 ],
             )
         # DETECTORs for X: compare current vs previous X records
@@ -156,31 +158,35 @@ def generate_full_circuit(
             body.append(
                 "DETECTOR",
                 [
-                    stim.target_rec(-(mx + mz) + j),               # current X (first mx)
-                    stim.target_rec(-2 * (mx + mz) + j),           # previous X (first mx of prev block)
+                    stim.target_rec(-(mx + mz) + j),  # current X (first mx)
+                    stim.target_rec(
+                        -2 * (mx + mz) + j
+                    ),  # previous X (first mx of prev block)
                 ],
             )
 
         # Wrap in a REPEAT block for rounds 2..n
         repeat_count = rounds - 1
-        indented = "\n".join("    " + line for line in str(body).splitlines() if line.strip())
+        indented = "\n".join(
+            "    " + line for line in str(body).splitlines() if line.strip()
+        )
         c += stim.Circuit(f"REPEAT {repeat_count} {{\n{indented}\n}}\n")
 
     # Final: data Z measurement with SPAM, and observables from Z logicals.
     c.append("X_ERROR", data_qubits, p_spam)
     c.append("MR", data_qubits)
-    
+
     # Add detectors comparing previous Z stabilizers with current data measurements
     # Each Z stabilizer check should be consistent with the data qubit measurements
     hz_csr = csr_matrix(code.hz)
     for z_check_idx in range(mz):
         # Get the data qubits that participate in this Z stabilizer
         data_qubits_in_check = hz_csr.getrow(z_check_idx).indices.tolist()
-        
+
         if data_qubits_in_check:
             # Create detector: previous Z measurement XOR current data measurements
             detector_targets = []
-            
+
             # Previous Z stabilizer measurement (from last syndrome round)
             if rounds > 1:
                 # In repeat structure, Z measurements are at positions -(mx + mz) to -mx - 1
@@ -188,13 +194,13 @@ def generate_full_circuit(
             else:
                 # In single round, Z measurements are at positions -mz to -1
                 detector_targets.append(stim.target_rec(-mz + z_check_idx))
-            
+
             # Current data qubit measurements (most recent n measurements)
             for data_idx in data_qubits_in_check:
                 detector_targets.append(stim.target_rec(-n + data_idx))
-            
+
             c.append("DETECTOR", detector_targets)
-    
+
     # OBSERVABLE_INCLUDE for each Z logical; assume lz is sparse or coercible.
     # Coerce to CSR, orient so rows enumerate logical-Z operators.
     lz_csr = csr_matrix(code.lz)

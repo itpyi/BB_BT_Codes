@@ -17,7 +17,7 @@ def _shift_mat(n: int, k: int) -> np.ndarray:
 
 
 def _parse_bivariate_terms(
-    spec: Union[Sequence[Tuple[int, int]], np.ndarray]
+    spec: Union[Sequence[Tuple[int, int]], np.ndarray],
 ) -> List[Tuple[int, int]]:
     """Normalize polynomial spec into list of (i, j) pairs for x^i y^j.
 
@@ -37,7 +37,9 @@ def _parse_bivariate_terms(
     raise ValueError("Unsupported polynomial spec format for bivariate terms")
 
 
-def get_BB_matrix(a: Union[Sequence[Tuple[int, int]], np.ndarray], l: int, m: int) -> np.ndarray:
+def get_BB_matrix(
+    a: Union[Sequence[Tuple[int, int]], np.ndarray], l: int, m: int
+) -> np.ndarray:
     """Return the (l*m) x (l*m) binary matrix for polynomial a(x, y).
 
     The polynomial is specified by exponent pairs for monomials x^i y^j. For
@@ -45,7 +47,7 @@ def get_BB_matrix(a: Union[Sequence[Tuple[int, int]], np.ndarray], l: int, m: in
     """
     terms = _parse_bivariate_terms(a)
     A = np.zeros((l * m, l * m), dtype=np.uint8)
-    for (ix, iy) in terms:
+    for ix, iy in terms:
         term = np.kron(_shift_mat(l, ix), _shift_mat(m, iy)).astype(np.uint8)
         A += term  # XOR accumulates modulo-2 for binary matrices in {0,1}
     return A % 2
@@ -69,4 +71,3 @@ def get_BB_Hx_Hz(
 
 
 __all__ = ["get_BB_matrix", "get_BB_Hx_Hz"]
-
