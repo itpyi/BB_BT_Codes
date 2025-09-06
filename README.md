@@ -26,7 +26,31 @@ This project simulates BB quantum LDPC codes to measure their logical error rate
 pip install numpy scipy ldpc bposd stim networkx matplotlib pytest mypy
 ```
 
-### Run simulation
+### JSON Configuration (Recommended)
+Create a JSON config file (see `config_examples/`):
+```json
+{
+  "description": "Small BB code test",
+  "a_poly": [[3, 0], [0, 1], [0, 2]],
+  "b_poly": [[0, 3], [1, 0], [2, 0]],
+  "l": 6, "m": 6,
+  "p_range": {"min": 0.001, "max": 0.007, "num_points": 3},
+  "rounds_list": [6, 8],
+  "max_shots": 1000,
+  "max_errors": 10
+}
+```
+
+Run simulations:
+```bash
+# Serial simulation
+python simulation_serial.py --config config_examples/bb_small_test.json --output-dir results
+
+# Multiprocess simulation  
+python simulation_multiprocess.py --config config_examples/bb_threshold_study.json --output-dir results
+```
+
+### Python API
 ```python
 from simulation_serial import run_BB_serial_simulation
 
@@ -34,17 +58,15 @@ results = run_BB_serial_simulation(
     a_poly=[(2, 0), (1, 1), (0, 2)],  # x^2 + xy + y^2  
     b_poly=[(1, 0), (0, 1)],          # x + y
     l=4, m=5,
-    p_min=0.001, p_max=0.01,
-    num_points=5,
-    rounds=3,
+    p_list=[0.001, 0.003, 0.005],
+    rounds_list=[6, 8],
     max_shots=10000
 )
 ```
 
-### Command line
+### Parse and Plot Results
 ```bash
-python simulation_multiprocess.py
-python results_parser_plotter.py --resume results.csv --show
+python results_parser_plotter.py --resume results/bb_6_6_serial_resume.csv --show
 ```
 
 ## Testing
