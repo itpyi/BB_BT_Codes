@@ -1,88 +1,60 @@
 """Stim circuit construction utilities for repeated syndrome extraction.
 
-Two entry points:
-- generate_synd_circuit: builds a single X or Z stabilizer measurement layer
-  with edge-colored CNOT scheduling and depolarizing noise.
+Entry point:
 - generate_full_circuit: composes repeated rounds of Z and X extraction followed
   by a final data measurement, injecting SPAM noise where applicable.
 """
 
 import numpy as np
-from cnot_scheduling import edge_color_bipartite
+from direct_cnot_scheduling import schedule_syndrome_cnots_only
 import stim
-from networkx import relabel_nodes
-from networkx.algorithms import bipartite
-from typing import Iterable, Any, Protocol, Sequence, cast
-from scipy.sparse import csr_matrix, issparse
+from typing import Any, Protocol, List
+from scipy.sparse import csr_matrix
 
 
-def generate_synd_circuit(
-    H: Any,
-    checks: Sequence[int],
-    stab_type: int,
-    p1: float,
-    p2: float,
-    seed: int,
+
+
+def generate_direct_syndrome_circuit(
+    code_hx: Any, 
+    code_hz: Any,
+    x_checks: List[int],
+    z_checks: List[int], 
+    p2: float
 ) -> stim.Circuit:
-    """Return Stim circuit for one stabilizer extraction layer.
-
-    Parameters
-    - H: biadjacency matrix (CSR/array) mapping check-to-data for a CSS half.
-    - checks: iterable of qubit indices for the ancilla (check) qubits.
-    - stab_type: 0 for Z-stabilizers (no Hadamards), 1 for X-stabilizers
-      (surround CNOTs with H on checks to rotate basis).
-    - p1, p2: single/two-qubit depolarizing error rates applied after gates.
-    - seed: RNG seed to shuffle color layers (0 means no shuffle).
+    """Return Stim circuit for syndrome extraction using direct parallel scheduling.
+    
+    Args:
+        code_hx: X stabilizer parity check matrix
+        code_hz: Z stabilizer parity check matrix  
+        x_checks: X check qubit indices
+        z_checks: Z check qubit indices
+        p2: Two-qubit depolarizing error rate
     """
-    # Ensure SciPy CSR for NetworkX biadjacency conversion
-    H_csr = csr_matrix(H)
-    m, n = H_csr.shape
-
-    # No Idle error
-    # p_idle = p1 / 100
-
-    # Build Tanner graph and relabel to match the global qubit index map used
-    # by the full circuit (data first, then X-checks, then Z-checks).
-    tanner_graph = bipartite.from_biadjacency_matrix(H_csr)
-    mapping = {i: checks[i] for i in range(m)}
-    mapping.update({i: i - m for i in range(m, n + m)})
-    tanner_graph = relabel_nodes(tanner_graph, mapping)
-
-    # Edge-color the bipartite graph to schedule disjoint CNOT layers.
-    coloring = edge_color_bipartite(tanner_graph)
-    if seed != 0:
-        rng = np.random.default_rng(seed=seed)
-        # Shuffle in-place; cast to Any to satisfy mypy on numpy API.
-        rng.shuffle(cast(Any, coloring), axis=0)
-
+    # Convert matrices to stabilizer lists
+    hx_csr = csr_matrix(code_hx)
+    hz_csr = csr_matrix(code_hz)
+    
+    x_stabilizers = []
+    for i in range(hx_csr.shape[0]):
+        stabilizer = hx_csr.getrow(i).indices.tolist()
+        if stabilizer:  # Only add non-empty stabilizers
+            x_stabilizers.append(stabilizer)
+    
+    z_stabilizers = []
+    for i in range(hz_csr.shape[0]):
+        stabilizer = hz_csr.getrow(i).indices.tolist()
+        if stabilizer:  # Only add non-empty stabilizers
+            z_stabilizers.append(stabilizer)
+    
+    # Create circuit using direct scheduling
     c = stim.Circuit()
-
-    # For X-stabilizers, rotate ancillas into X basis via H.
     c.append("TICK")
-    if stab_type:
-        c.append("H", checks)
-        c.append("DEPOLARIZE1", checks, p1)
-        c.append("TICK")
-
-    for r in coloring:
-        # Apply each edge-color class as one CNOT layer.
-        data_qbts = set(np.arange(n))
-        for g in r:
-            # g = (data_idx, check_idx), consume data from the idle set.
-            data_qbts.remove(g[0])
-            targets = g[::-1] if stab_type else g
-            c.append("CX", targets)
-            c.append("DEPOLARIZE2", targets, p2)
-        # Idle data qubits accrue single-qubit depolarizing noise this layer.
-        # 2025/9/3 Comment idle error
-        # c.append("DEPOLARIZE1", data_qbts, p_idle)
-        c.append("TICK")
-
-    # Undo the basis rotation for X-stabilizers.
-    if stab_type:
-        c.append("H", checks)
-        c.append("DEPOLARIZE1", checks, p1)
-        c.append("TICK")
+    
+    # Use the direct scheduling approach (CNOTs only, no measurements)
+    schedule_syndrome_cnots_only(
+        c, z_stabilizers, z_checks, x_stabilizers, x_checks, p2
+    )
+    
     return c
 
 
@@ -116,14 +88,12 @@ def generate_full_circuit(
 
     c = stim.Circuit()
 
-    # Build Z and X stabilizer extraction layers using graph scheduling.
-    z_synd = generate_synd_circuit(code.hz, z_checks, 0, p1, p2, seed)
-    x_synd = generate_synd_circuit(code.hx, x_checks, 1, p1, p2, seed)
+    # Build syndrome extraction layer using direct parallel scheduling.
+    synd_circuit = generate_direct_syndrome_circuit(code.hx, code.hz, x_checks, z_checks, p2)
 
-    # Round 1: reset all qubits; build both Z and X layers; measure all checks once (no SPAM).
+    # Round 1: initialize all qubits (data qubits to |0>, ancillas reset); build syndrome layer; measure all checks once (no SPAM).
     c.append("R", data_qubits + x_checks + z_checks)
-    c += z_synd
-    c += x_synd
+    c += synd_circuit
     all_checks = x_checks + z_checks  # Order defines MR record order
 
     c.append("X_ERROR", all_checks, p_spam)
@@ -134,12 +104,11 @@ def generate_full_circuit(
         c.append("DETECTOR", [stim.target_rec(-mz + j)])
     c.append("TICK")
 
-    # Rounds 2..n: use a REPEAT block. Each iteration measures Z then X checks.
+    # Rounds 2..n: use a REPEAT block. Each iteration performs syndrome measurement.
     if rounds > 1:
         body = stim.Circuit()
-        # Build both Z and X layers, then measure all checks together with SPAM
-        body += z_synd
-        body += x_synd
+        # Build syndrome layer, then measure all checks together with SPAM
+        body += synd_circuit
         body.append("X_ERROR", all_checks, p_spam)
         body.append("MR", all_checks)
         # DETECTORs for Z: compare current vs previous Z records
@@ -221,5 +190,12 @@ def generate_full_circuit(
     # # Convert diagram object to string before writing
     # with open("circuit_debug_diagram.svg", "w") as f:
     #     f.write(str(diagram))
+
+    diagram = c.diagram('timeline-svg')
+    # Convert diagram object to string before writing
+    with open("circuit_debug_diagram.svg", "w") as f:
+        f.write(str(diagram))
+    c.to_file("circuit_debug_circuit.stim")
+    print(f"mx={mx}, mz={mz}, n={n}, rounds={rounds}, total_ticks={len(c)}")
 
     return c

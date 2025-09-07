@@ -6,8 +6,13 @@ executed in parallel as one CNOT layer.
 """
 
 import networkx as nx
+import numpy as np
+import stim
 from collections import namedtuple
-from typing import List, Set, Tuple, Any, Iterable, Union, Any as _Any
+from typing import List, Set, Tuple, Any, Iterable, Union, Any as _Any, Sequence, cast
+from scipy.sparse import csr_matrix
+from networkx.algorithms import bipartite
+from networkx import relabel_nodes
 
 
 def _canonicalize_edge(e: tuple) -> tuple:
@@ -109,3 +114,73 @@ def edge_color_bipartite(bipartite_graph: nx.Graph) -> List[Set[EdgeTuple]]:
         u_set.edges.add(_canonicalize_edge(edge))
 
     return [v.edges for v in colorings]
+
+
+def generate_edge_colored_syndrome_circuit(
+    H: Any,
+    checks: Sequence[int],
+    stab_type: int,
+    p1: float,
+    p2: float,
+    seed: int,
+) -> stim.Circuit:
+    """Return Stim circuit for one stabilizer extraction layer using edge-coloring.
+
+    Parameters
+    - H: biadjacency matrix (CSR/array) mapping check-to-data for a CSS half.
+    - checks: iterable of qubit indices for the ancilla (check) qubits.
+    - stab_type: 0 for Z-stabilizers (no Hadamards), 1 for X-stabilizers
+      (surround CNOTs with H on checks to rotate basis).
+    - p1, p2: single/two-qubit depolarizing error rates applied after gates.
+    - seed: RNG seed to shuffle color layers (0 means no shuffle).
+    """
+    # Ensure SciPy CSR for NetworkX biadjacency conversion
+    H_csr = csr_matrix(H)
+    m, n = H_csr.shape
+
+    # No Idle error
+    # p_idle = p1 / 100
+
+    # Build Tanner graph and relabel to match the global qubit index map used
+    # by the full circuit (data first, then X-checks, then Z-checks).
+    tanner_graph = bipartite.from_biadjacency_matrix(H_csr)
+    mapping = {i: checks[i] for i in range(m)}
+    mapping.update({i: i - m for i in range(m, n + m)})
+    tanner_graph = relabel_nodes(tanner_graph, mapping)
+
+    # Edge-color the bipartite graph to schedule disjoint CNOT layers.
+    coloring = edge_color_bipartite(tanner_graph)
+    if seed != 0:
+        rng = np.random.default_rng(seed=seed)
+        # Shuffle in-place; cast to Any to satisfy mypy on numpy API.
+        rng.shuffle(cast(Any, coloring), axis=0)
+
+    c = stim.Circuit()
+
+    # For X-stabilizers, rotate ancillas into X basis via H.
+    c.append("TICK")
+    if stab_type:
+        c.append("H", checks)
+        c.append("DEPOLARIZE1", checks, p1)
+        c.append("TICK")
+
+    for r in coloring:
+        # Apply each edge-color class as one CNOT layer.
+        data_qbts = set(np.arange(n))
+        for g in r:
+            # g = (data_idx, check_idx), consume data from the idle set.
+            data_qbts.remove(g[0])
+            targets = g[::-1] if stab_type else g
+            c.append("CX", targets)
+            c.append("DEPOLARIZE2", targets, p2)
+        # Idle data qubits accrue single-qubit depolarizing noise this layer.
+        # 2025/9/3 Comment idle error
+        # c.append("DEPOLARIZE1", data_qbts, p_idle)
+        c.append("TICK")
+
+    # Undo the basis rotation for X-stabilizers.
+    if stab_type:
+        c.append("H", checks)
+        c.append("DEPOLARIZE1", checks, p1)
+        c.append("TICK")
+    return c

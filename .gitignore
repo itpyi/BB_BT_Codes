@@ -46,6 +46,8 @@ AGENTS.md
 # Jupyter file
 *.ipynb
 
+*.stim
+
 test/BB_code_benchmark
 deprecated_code/*
 Review_report.md
