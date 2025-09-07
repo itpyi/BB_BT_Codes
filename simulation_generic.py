@@ -131,6 +131,8 @@ def run_QEC_serial_simulation(
                         shots=0,
                         errors=0,
                         seconds=0.0,
+                        code_type=code_type,
+                        n=int(code_params.get("n", -1)),
                     )
                 )
                 continue
@@ -179,6 +181,8 @@ def run_QEC_serial_simulation(
                     shots=shots_done,
                     errors=errors,
                     seconds=dt,
+                    code_type=code_type,
+                    n=int(code_params.get("n", -1)),
                 )
             )
             print(
@@ -382,6 +386,8 @@ def run_QEC_multiprocess_simulation(
                         shots=0,
                         errors=0,
                         seconds=0.0,
+                        code_type=code_type,
+                        n=int(code_params.get("n", -1)),
                     )
                 )
                 continue
@@ -408,6 +414,7 @@ def run_QEC_multiprocess_simulation(
                 for _ in range(w)
             ]
 
+            print("Start bp osd decoding")
             t0 = time.time()
             with mp.Pool(processes=w) as pool:
                 outs = pool.map(_worker_entry_generic, args)
@@ -426,6 +433,8 @@ def run_QEC_multiprocess_simulation(
                     shots=shots_done,
                     errors=errors,
                     seconds=dt,
+                    code_type=code_type,
+                    n=int(code_params.get("n", -1)),
                 )
             )
             total_shots = existing_shots + shots_done

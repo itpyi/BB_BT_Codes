@@ -32,6 +32,9 @@ class ResultPoint:
     shots: int
     errors: int
     seconds: float
+    # Optional descriptors for plotting/naming
+    code_type: str = "BB"
+    n: int = -1
 
     @property
     def ler(self) -> float:
@@ -338,7 +341,7 @@ def _setup_plot_style() -> Tuple[List[str], Any]:
     return markers, cmap
 
 
-def _group_points_by_configuration(points: List[ResultPoint]) -> Dict[Tuple[int, int, str], List[ResultPoint]]:
+def _group_points_by_configuration(points: List[ResultPoint]) -> Dict[Tuple[str, int, int, int, str], List[ResultPoint]]:
     """Group result points by (l, m, decoder) configuration.
     
     Args:
@@ -347,9 +350,11 @@ def _group_points_by_configuration(points: List[ResultPoint]) -> Dict[Tuple[int,
     Returns:
         Dictionary mapping (l, m, decoder) tuples to lists of points
     """
-    by_group: Dict[Tuple[int, int, str], List[ResultPoint]] = {}
+    by_group: Dict[Tuple[str, int, int, int, str], List[ResultPoint]] = {}
     for r in points:
-        by_group.setdefault((r.l, r.m, r.decoder), []).append(r)
+        code_t = r.code_type if getattr(r, "code_type", None) else "BB"
+        n_dim = int(getattr(r, "n", -1))
+        by_group.setdefault((code_t, int(r.l), int(r.m), n_dim, r.decoder), []).append(r)
     return by_group
 
 
@@ -378,7 +383,16 @@ def _calculate_plot_bounds(all_x_vals: List[float], all_y_vals: List[float]) -> 
     return x_min, x_max, y_min, y_max
 
 
-def _apply_plot_styling(ax: plt.Axes, l: int, m: int, decoder: str, y_mode: str, K: int | None = None) -> None:
+def _apply_plot_styling(
+    ax: plt.Axes,
+    code_type: str,
+    l: int,
+    m: int,
+    n: int | None,
+    decoder: str,
+    y_mode: str,
+    K: int | None = None,
+) -> None:
     """Apply styling to a plot axis.
     
     Args:
@@ -396,7 +410,12 @@ def _apply_plot_styling(ax: plt.Axes, l: int, m: int, decoder: str, y_mode: str,
         "per_round": "Per-round error rate",
     }.get(y_mode, "Logical error rate")
     ax.set_ylabel(y_label)
-    ax.set_title(f"BB {l}×{m} ({decoder})")
+    ct = (code_type or "BB").upper()
+    if ct == "TT" and n is not None and int(n) > 0:
+        title = f"{ct} {l}×{m}×{int(n)} ({decoder})"
+    else:
+        title = f"{ct} {l}×{m} ({decoder})"
+    ax.set_title(title)
     ax.grid(True, which="both", linestyle=":", alpha=0.6)
     ax.legend(frameon=False, fontsize=10)
 
@@ -424,7 +443,16 @@ def _apply_plot_styling(ax: plt.Axes, l: int, m: int, decoder: str, y_mode: str,
         )
 
 
-def _save_plot(fig: plt.Figure, l: int, m: int, y_mode: str, out_png: str | None, show: bool) -> None:
+def _save_plot(
+    fig: plt.Figure,
+    code_type: str,
+    l: int,
+    m: int,
+    n: int | None,
+    y_mode: str,
+    out_png: str | None,
+    show: bool,
+) -> None:
     """Save plot to file and optionally display it.
     
     Args:
@@ -443,7 +471,11 @@ def _save_plot(fig: plt.Figure, l: int, m: int, y_mode: str, out_png: str | None
             "per_logical": "per_logical", 
             "per_round": "per_round",
         }.get(y_mode, "parsed_results")
-        path = f"Data/bb_{l}_{m}_{suffix}.png"
+        ct = (code_type or "bb").lower()
+        if (code_type or "BB").upper() == "TT" and n is not None and int(n) > 0:
+            path = f"Data/{ct}_{l}_{m}_{int(n)}_{suffix}.png"
+        else:
+            path = f"Data/{ct}_{l}_{m}_{suffix}.png"
     
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     fig.savefig(path, bbox_inches="tight", dpi=200)
@@ -476,7 +508,7 @@ def plot_points(
     markers, cmap = _setup_plot_style()
     by_group = _group_points_by_configuration(points)
 
-    for (l, m, dec), pts in by_group.items():
+    for (code_t, l, m, n_dim, dec), pts in by_group.items():
         pts = list(pts)
         fig, ax = plt.subplots(1, 1, figsize=(9, 6))
         
@@ -545,5 +577,5 @@ def plot_points(
         ax.set_xscale("log")
         ax.set_yscale("log")
         
-        _apply_plot_styling(ax, l, m, dec, y_mode, K)
-        _save_plot(fig, l, m, y_mode, out_png, show)
+        _apply_plot_styling(ax, code_t, l, m, n_dim, dec, y_mode, K)
+        _save_plot(fig, code_t, l, m, n_dim, y_mode, out_png, show)

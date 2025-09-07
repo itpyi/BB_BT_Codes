@@ -34,7 +34,7 @@ def _try_load_json(s: str) -> Any:
 
 
 def load_resume_csv(paths: Iterable[str]) -> List[ResultPoint]:
-    by_key: Dict[Tuple[str, int, int, int, float], ResultPoint] = {}
+    by_key: Dict[Tuple[str, str, int, int, int, float], ResultPoint] = {}
     for path in paths:
         if not os.path.exists(path):
             continue
@@ -52,9 +52,13 @@ def load_resume_csv(paths: Iterable[str]) -> List[ResultPoint]:
 
                 p = float(meta.get("p", math.nan))
                 rounds = int(meta.get("rounds", -1))
-                l = int(meta.get("l", -1))
-                m = int(meta.get("m", -1))
-                key = (decoder, l, m, rounds, p)
+                # Prefer explicit l,m if present; else fall back to code_l, code_m
+                l = int(meta.get("l", meta.get("code_l", -1)))
+                m = int(meta.get("m", meta.get("code_m", -1)))
+                code_type = str(meta.get("code_type", "BB")).upper()
+                # Prefer TT dimension 'n' if present under code_n/code_n_dim
+                n_dim = int(meta.get("n", meta.get("code_n", -1)))
+                key = (decoder, code_type, l, m, rounds, p)
                 if key not in by_key:
                     by_key[key] = ResultPoint(
                         decoder=decoder,
@@ -65,6 +69,8 @@ def load_resume_csv(paths: Iterable[str]) -> List[ResultPoint]:
                         shots=0,
                         errors=0,
                         seconds=0.0,
+                        code_type=code_type,
+                        n=n_dim,
                     )
                 pt = by_key[key]
                 pt.shots += shots
@@ -126,8 +132,10 @@ def load_summary_csv(
                 errors = int(row["errors"]) if row["errors"] != "" else 0
                 seconds = float(row.get("seconds", 0.0) or 0.0)
                 meta = _try_load_json(row.get("json_metadata", "{}"))
-                l_eff = int(meta.get("l", -1) or -1)
-                m_eff = int(meta.get("m", -1) or -1)
+                l_eff = int((meta.get("l") if meta else -1) or -1)
+                m_eff = int((meta.get("m") if meta else -1) or -1)
+                code_type = str((meta.get("code_type") if meta else "BB") or "BB").upper()
+                n_dim = int((meta.get("code_n") if meta else -1) or -1)
                 out.append(
                     ResultPoint(
                         decoder=decoder,
@@ -138,6 +146,8 @@ def load_summary_csv(
                         shots=shots,
                         errors=errors,
                         seconds=seconds,
+                        code_type=code_type,
+                        n=n_dim,
                     )
                 )
     return out

@@ -156,13 +156,15 @@ def generate_full_circuit(
             # Create detector: previous Z measurement XOR current data measurements
             detector_targets = []
 
-            # Previous Z stabilizer measurement (from last syndrome round)
-            if rounds > 1:
-                # In repeat structure, Z measurements are at positions -(mx + mz) to -mx - 1
-                detector_targets.append(stim.target_rec(-(mx + mz) - mz + z_check_idx))
-            else:
-                # In single round, Z measurements are at positions -mz to -1
-                detector_targets.append(stim.target_rec(-mz + z_check_idx))
+            # Previous Z stabilizer measurement (from the last syndrome round)
+            # After the REPEAT block, we append an MR over data qubits (n records).
+            # The last Z-check results from the final syndrome MR are therefore
+            # located at rec[-n - mz ... -n - 1].
+            # HERE BUG is FIXED BY CODEX
+            # The previous answer  stim.target_rec(-mx - mz + z_check_idx) is wrong.
+            # BB code it works since n = mx
+            # BT code it fails since n = 3*mx
+            detector_targets.append(stim.target_rec(-n - mz + z_check_idx))
 
             # Current data qubit measurements (most recent n measurements)
             for data_idx in data_qubits_in_check:
@@ -176,11 +178,9 @@ def generate_full_circuit(
     if lz_csr.shape[1] != n and lz_csr.shape[0] == n:
         lz_csr = lz_csr.T
     obs_idx = 0
-    indptr = lz_csr.indptr
-    indices = lz_csr.indices
     for r in range(lz_csr.shape[0]):
-        start, end = indptr[r], indptr[r + 1]
-        supp = indices[start:end].tolist()
+        # Readable row support extraction
+        supp = lz_csr.getrow(r).indices.tolist()
         if supp:
             recs = [stim.target_rec(-n + q) for q in supp]
             c.append("OBSERVABLE_INCLUDE", recs, obs_idx)
