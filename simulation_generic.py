@@ -68,6 +68,18 @@ def _enable_watchdog_from_env() -> None:
             pass
 
 
+def _sanitize_suffix(s: str) -> str:
+    """Convert arbitrary description to a filesystem-friendly suffix.
+
+    Lowercase, replace non-alphanumerics with underscores, collapse repeats, trim.
+    """
+    import re
+    s = (s or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s[:60] if s else ""
+
+
 def run_QEC_serial_simulation(
     *,
     code_type: str,
@@ -139,6 +151,7 @@ def run_QEC_serial_simulation(
                 "code_type": code_type,
                 "code_k": code.K,
                 "code_n": code.N,
+                "code_D": int(getattr(code, "D", -1)),
                 "p": float(p),
                 "rounds": int(rounds),
                 **{f"code_{k}": v for k, v in code_params.items()},  # Add all code params
@@ -410,6 +423,7 @@ def run_QEC_multiprocess_simulation(
                 "code_type": code_type,
                 "code_k": code.K,
                 "code_n": code.N,
+                "code_D": int(getattr(code, "D", -1)),
                 "p": float(p),
                 "rounds": int(rounds),
                 **{f"code_{k}": v for k, v in code_params.items()},  # Add all code params
@@ -548,6 +562,9 @@ def run_simulation_from_config(config: Union[dict, List[dict]], *, output_dir: s
     for exp in exps:
         # Extract code type and parameters
         code_type, code_params = extract_code_params_from_config(exp)
+        # Determine per-experiment suffix from description
+        desc = str(exp.get("description", "")).strip()
+        suffix = _sanitize_suffix(desc) if desc else ""
 
         # Convert p_range to p_list if needed
         if 'p_range' in exp:
@@ -568,7 +585,9 @@ def run_simulation_from_config(config: Union[dict, List[dict]], *, output_dir: s
         resume_csv = exp.get('resume_csv', None)
         if resume_csv is None:
             runner_type = "mp" if multiprocess else "serial"
-            resume_csv = generate_default_resume_csv(code_type, output_dir, runner_type, **code_params)
+            resume_csv = generate_default_resume_csv(
+                code_type, output_dir, runner_type, suffix=suffix, **code_params
+            )
         resume_every = exp.get('resume_every', DEFAULT_RESUME_EVERY)
 
         # Choose simulation runner
@@ -649,9 +668,14 @@ def main() -> None:
         # Build code for metadata & filenames
         code_type, code_params = extract_code_params_from_config(exp)
         code_meta = build_code_generic(code_type, **code_params)
+        # Build suffix from description for output naming
+        desc = str(exp.get("description", "")).strip()
+        suffix = _sanitize_suffix(desc) if desc else f"exp{idx}"
 
         # Aggregate from resume CSV for full totals (including previous runs)
-        resume_path = generate_default_resume_csv(code_type, args.output_dir, runner_type, **code_params)
+        resume_path = generate_default_resume_csv(
+            code_type, args.output_dir, runner_type, suffix=suffix, **code_params
+        )
         aggregated = load_resume_csv([resume_path]) if os.path.exists(resume_path) else []
 
         # Output base
@@ -660,7 +684,7 @@ def main() -> None:
             size_suffix = f"{code_params['l']}_{code_params['m']}_{code_params['n']}"
         else:
             size_suffix = f"{code_params['l']}_{code_params['m']}"
-        output_base = f"{args.output_dir}/{code_prefix}_{size_suffix}_{runner_type}"
+        output_base = f"{args.output_dir}/{code_prefix}_{size_suffix}_{runner_type}_{suffix}"
 
         # Save CSV results
         save_summary_csv(
@@ -670,6 +694,7 @@ def main() -> None:
                 "code_type": code_type,
                 "code_k": int(code_meta.K),
                 "code_n": int(code_meta.N),
+                "code_D": int(getattr(code_meta, "D", -1)),
                 **{f"code_{k}": v for k, v in code_params.items()},
             },
         )
@@ -678,7 +703,13 @@ def main() -> None:
         plot_src = aggregated if aggregated else results
         if plot_src:
             plot_points(
-                plot_src, out_png=f"{output_base}_results.png", show=False, y_mode="ler"
+                plot_src,
+                out_png=f"{output_base}_results.png",
+                show=False,
+                y_mode="ler",
+                K=int(code_meta.K),
+                N=int(code_meta.N),
+                D=int(getattr(code_meta, "D", -1)),
             )
             plot_points(
                 plot_src,
@@ -686,12 +717,17 @@ def main() -> None:
                 show=False,
                 y_mode="per_logical",
                 K=int(code_meta.K),
+                N=int(code_meta.N),
+                D=int(getattr(code_meta, "D", -1)),
             )
             plot_points(
                 plot_src,
                 out_png=f"{output_base}_results_per_round.png",
                 show=False,
                 y_mode="per_round",
+                K=int(code_meta.K),
+                N=int(code_meta.N),
+                D=int(getattr(code_meta, "D", -1)),
             )
             print(f"[{idx}/{len(experiments)}] Results saved to {output_base}_results.csv")
             print(f"[{idx}/{len(experiments)}] Plots saved to {output_base}_results*.png")

@@ -22,6 +22,7 @@ from ldpc.bposd_decoder import BpOsdDecoder
 from ldpc.ckt_noise.dem_matrices import detector_error_model_to_check_matrices
 import time
 import logging
+from distance_estimator import get_min_logical_weight
 
 
 @dataclass
@@ -37,36 +38,135 @@ class ResultPoint:
     # Optional descriptors for plotting/naming
     code_type: str = "BB"
     n: int = -1
+    # Optional code parameters (when available from metadata)
+    K: int = -1  # number of logical operators
+    N: int = -1  # number of physical qubits
+    D: int = -1  # code distance (min of X/Z)
 
     @property
     def ler(self) -> float:
         return self.errors / max(1, self.shots)
 
 
-def build_bb_code(a_poly: list, b_poly: list, l: int, m: int) -> css_code:
+def _estimate_distances(
+    code: css_code,
+    *,
+    p: float = 0.01,
+    bp_iters: int = 20,
+    osd_order: int = 0,
+    iters: int = 200,
+) -> tuple[int, int]:
+    """Empirically estimate X/Z distances using BP+OSD sampling.
+
+    Returns (d_x_est, d_z_est). Uses i.i.d. error rate p and runs `iters`
+    samples for each Pauli type. Keeps defaults small for quick feedback.
+    """
+    try:
+        dx = get_min_logical_weight(code, p=p, pars=[bp_iters, osd_order], iters=iters, Ptype=0)
+        dz = get_min_logical_weight(code, p=p, pars=[bp_iters, osd_order], iters=iters, Ptype=1)
+        return int(dx), int(dz)
+    except Exception as e:
+        logging.warning("[DIST] distance estimation failed: %s", str(e).splitlines()[0] if str(e) else "Exception")
+        return -1, -1
+
+
+def build_bb_code(
+    a_poly: list,
+    b_poly: list,
+    l: int,
+    m: int,
+    *,
+    estimate_distance: bool = True,
+    est_p: float = 0.01,
+    est_bp_iters: int = 20,
+    est_osd_order: int = 0,
+    est_iters: int = 200,
+) -> css_code:
     from bivariate_bicycle_codes import get_BB_Hx_Hz  # local import to avoid cycles
 
     Hx, Hz = get_BB_Hx_Hz(a_poly, b_poly, l, m)
     code = css_code(hx=Hx, hz=Hz, name=f"BB_{l}x{m}")
     code.test()
+    if estimate_distance:
+        dx, dz = _estimate_distances(
+            code, p=est_p, bp_iters=est_bp_iters, osd_order=est_osd_order, iters=est_iters
+        )
+        # Attach as optional metadata on the code object
+        setattr(code, "estimated_distance_x", int(dx))
+        setattr(code, "estimated_distance_z", int(dz))
+        try:
+            candidates = [d for d in (dx, dz) if isinstance(d, (int, float)) and d > 0]
+            code.D = int(min(candidates)) if candidates else -1
+        except Exception:
+            setattr(code, "D", -1)
+        logging.info("[DIST] BB_%dx%d estimated distances: dx=%s, dz=%s", l, m, dx, dz)
     return code
 
 
-def build_bt_code(a_poly: list, b_poly: list, c_poly: list, l: int, m: int) -> css_code:
+def build_bt_code(
+    a_poly: list,
+    b_poly: list,
+    c_poly: list,
+    l: int,
+    m: int,
+    *,
+    estimate_distance: bool = True,
+    est_p: float = 0.01,
+    est_bp_iters: int = 20,
+    est_osd_order: int = 0,
+    est_iters: int = 200,
+) -> css_code:
     from bivariate_tricycle_codes import get_BT_Hx_Hz  # local import to avoid cycles
 
     Hx, Hz = get_BT_Hx_Hz(a_poly, b_poly, c_poly, l, m)
     code = css_code(hx=Hx, hz=Hz, name=f"BT_{l}x{m}")
     code.test()
+    if estimate_distance:
+        dx, dz = _estimate_distances(
+            code, p=est_p, bp_iters=est_bp_iters, osd_order=est_osd_order, iters=est_iters
+        )
+        setattr(code, "estimated_distance_x", int(dx))
+        setattr(code, "estimated_distance_z", int(dz))
+        try:
+            candidates = [d for d in (dx, dz) if isinstance(d, (int, float)) and d > 0]
+            code.D = int(min(candidates)) if candidates else -1
+        except Exception:
+            setattr(code, "D", -1)
+        logging.info("[DIST] BT_%dx%d estimated distances: dx=%s, dz=%s", l, m, dx, dz)
     return code
 
 
-def build_tt_code(a_poly: list, b_poly: list, c_poly: list, l: int, m: int, n: int) -> css_code:
+def build_tt_code(
+    a_poly: list,
+    b_poly: list,
+    c_poly: list,
+    l: int,
+    m: int,
+    n: int,
+    *,
+    estimate_distance: bool = True,
+    est_p: float = 0.01,
+    est_bp_iters: int = 20,
+    est_osd_order: int = 0,
+    est_iters: int = 200,
+) -> css_code:
     from trivariate_tricycle_codes import get_TT_Hx_Hz  # local import to avoid cycles
 
     Hx, Hz = get_TT_Hx_Hz(a_poly, b_poly, c_poly, l, m, n)
     code = css_code(hx=Hx, hz=Hz, name=f"TT_{l}x{m}x{n}")
     code.test()
+    if estimate_distance:
+        dx, dz = _estimate_distances(
+            code, p=est_p, bp_iters=est_bp_iters, osd_order=est_osd_order, iters=est_iters
+        )
+        setattr(code, "estimated_distance_x", int(dx))
+        setattr(code, "estimated_distance_z", int(dz))
+        try:
+            candidates = [d for d in (dx, dz) if isinstance(d, (int, float)) and d > 0]
+            code.D = int(min(candidates)) if candidates else -1
+        except Exception:
+            setattr(code, "D", -1)
+        logging.info("[DIST] TT_%dx%dx%d estimated distances: dx=%s, dz=%s", l, m, n, dx, dz)
     return code
 
 
@@ -120,13 +220,20 @@ def generate_default_resume_csv(code_type: str, output_dir: str, runner_type: st
         Default resume CSV path
     """
     code_type = code_type.lower()
-    
+
+    # Optional suffix to distinguish multiple experiments
+    suffix = params.pop("suffix", None)
+    suffix_part = f"_{suffix}" if suffix else ""
+
     if code_type == "bb":
-        return f"{output_dir}/bb_{params['l']}_{params['m']}_{runner_type}_resume.csv"
+        return f"{output_dir}/bb_{params['l']}_{params['m']}_{runner_type}_resume{suffix_part}.csv"
     elif code_type == "bt":
-        return f"{output_dir}/bt_{params['l']}_{params['m']}_{runner_type}_resume.csv"
+        return f"{output_dir}/bt_{params['l']}_{params['m']}_{runner_type}_resume{suffix_part}.csv"
     elif code_type == "tt":
-        return f"{output_dir}/tt_{params['l']}_{params['m']}_{params['n']}_{runner_type}_resume.csv"
+        n_dim = params.get('n', None)
+        if n_dim is not None:
+            return f"{output_dir}/tt_{params['l']}_{params['m']}_{int(n_dim)}_{runner_type}_resume{suffix_part}.csv"
+        return f"{output_dir}/tt_{params['l']}_{params['m']}_{runner_type}_resume{suffix_part}.csv"
     else:
         raise ValueError(f"Unknown code type: {code_type}")
 
@@ -554,6 +661,8 @@ def plot_points(
     show: bool = False,
     y_mode: str = "ler",
     K: int | None = None,
+    N: int | None = None,
+    D: int | None = None,
 ) -> None:
     """Generate plots for BB code simulation results with confidence intervals.
     
@@ -640,5 +749,49 @@ def plot_points(
         ax.set_xscale("log")
         ax.set_yscale("log")
         
+        # Try to infer N/D if not provided
+        N_eff = int(N) if N is not None else -1
+        D_eff = int(D) if D is not None else -1
+        if N_eff <= 0:
+            try:
+                Ns = {int(getattr(p, 'N', -1)) for p in pts if getattr(p, 'N', -1) and int(getattr(p, 'N', -1)) > 0}
+                if len(Ns) == 1:
+                    N_eff = Ns.pop()
+            except Exception:
+                pass
+        if D_eff <= 0:
+            try:
+                Ds = {int(getattr(p, 'D', -1)) for p in pts if getattr(p, 'D', -1) and int(getattr(p, 'D', -1)) > 0}
+                if len(Ds) == 1:
+                    D_eff = Ds.pop()
+            except Exception:
+                pass
+
         _apply_plot_styling(ax, code_t, l, m, n_dim, dec, y_mode, K)
+
+        # Add N,K,D tag at top-right
+        info_parts = []
+        if N_eff and N_eff > 0:
+            info_parts.append(f"N={N_eff}")
+        if K and K > 0:
+            info_parts.append(f"K={int(K)}")
+        if D_eff and D_eff > 0:
+            # The displayed D is an upper bound on the true distance: D_true ≤ code.D
+            info_parts.append(f"D ≤ {D_eff}")
+        if info_parts:
+            ax.text(
+                0.98,
+                0.98,
+                "[" + ", ".join(info_parts) + "]",
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=10,
+                bbox=dict(
+                    boxstyle="round,pad=0.2",
+                    facecolor="white",
+                    alpha=0.7,
+                    edgecolor="none",
+                ),
+            )
         _save_plot(fig, code_t, l, m, n_dim, y_mode, out_png, show)
