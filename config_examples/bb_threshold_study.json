@@ -1,5 +1,6 @@
 {
   "description": "BB code threshold estimation with larger parameters",
+  "code_type": "BB",
   "a_poly": [[3, 0], [0, 1], [0, 2]],
   "b_poly": [[0, 3], [1, 0], [2, 0]],
   "l": 12,

@@ -1,7 +1,8 @@
-"""Shared utilities for BB code simulations (serial and multiprocess).
+"""Core utilities for quantum error correction code simulations.
 
 Provides common data structures, code/decoder builders, CSV helpers, and
-plotting so scripts stay small and consistent.
+plotting functionality. Supports BB (Bivariate Bicycle), BT (Bivariate Tricycle),
+TT (Trivariate Tricycle) and other quantum LDPC codes.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from matplotlib import pyplot as plt
 from bposd.css import css_code
 from ldpc.bposd_decoder import BpOsdDecoder
 from ldpc.ckt_noise.dem_matrices import detector_error_model_to_check_matrices
+import time
+import logging
 
 
 @dataclass
@@ -31,6 +34,9 @@ class ResultPoint:
     shots: int
     errors: int
     seconds: float
+    # Optional descriptors for plotting/naming
+    code_type: str = "BB"
+    n: int = -1
 
     @property
     def ler(self) -> float:
@@ -46,13 +52,170 @@ def build_bb_code(a_poly: list, b_poly: list, l: int, m: int) -> css_code:
     return code
 
 
+def build_bt_code(a_poly: list, b_poly: list, c_poly: list, l: int, m: int) -> css_code:
+    from bivariate_tricycle_codes import get_BT_Hx_Hz  # local import to avoid cycles
+
+    Hx, Hz = get_BT_Hx_Hz(a_poly, b_poly, c_poly, l, m)
+    code = css_code(hx=Hx, hz=Hz, name=f"BT_{l}x{m}")
+    code.test()
+    return code
+
+
+def build_tt_code(a_poly: list, b_poly: list, c_poly: list, l: int, m: int, n: int) -> css_code:
+    from trivariate_tricycle_codes import get_TT_Hx_Hz  # local import to avoid cycles
+
+    Hx, Hz = get_TT_Hx_Hz(a_poly, b_poly, c_poly, l, m, n)
+    code = css_code(hx=Hx, hz=Hz, name=f"TT_{l}x{m}x{n}")
+    code.test()
+    return code
+
+
+def build_code_generic(code_type: str, **params) -> css_code:
+    """Generic code builder dispatcher.
+    
+    Args:
+        code_type: "BB", "BT", or "TT"
+        **params: Code-specific parameters
+        
+    Returns:
+        Constructed CSS code
+        
+    Raises:
+        ValueError: If code_type is unknown or required parameters are missing
+    """
+    code_type = code_type.upper()
+    
+    if code_type == "BB":
+        required = {"a_poly", "b_poly", "l", "m"}
+        if not required.issubset(params.keys()):
+            raise ValueError(f"BB code requires parameters: {required}")
+        return build_bb_code(params["a_poly"], params["b_poly"], params["l"], params["m"])
+    
+    elif code_type == "BT":
+        required = {"a_poly", "b_poly", "c_poly", "l", "m"}
+        if not required.issubset(params.keys()):
+            raise ValueError(f"BT code requires parameters: {required}")
+        return build_bt_code(params["a_poly"], params["b_poly"], params["c_poly"], params["l"], params["m"])
+    
+    elif code_type == "TT":
+        required = {"a_poly", "b_poly", "c_poly", "l", "m", "n"}
+        if not required.issubset(params.keys()):
+            raise ValueError(f"TT code requires parameters: {required}")
+        return build_tt_code(params["a_poly"], params["b_poly"], params["c_poly"], params["l"], params["m"], params["n"])
+    
+    else:
+        raise ValueError(f"Unknown code type: {code_type}. Supported types: BB, BT, TT")
+
+
+def generate_default_resume_csv(code_type: str, output_dir: str, runner_type: str, **params) -> str:
+    """Generate default resume CSV filename based on code type and parameters.
+    
+    Args:
+        code_type: "BB", "BT", or "TT"
+        output_dir: Output directory
+        runner_type: "serial" or "mp" 
+        **params: Code parameters (l, m, n, etc.)
+        
+    Returns:
+        Default resume CSV path
+    """
+    code_type = code_type.lower()
+    
+    if code_type == "bb":
+        return f"{output_dir}/bb_{params['l']}_{params['m']}_{runner_type}_resume.csv"
+    elif code_type == "bt":
+        return f"{output_dir}/bt_{params['l']}_{params['m']}_{runner_type}_resume.csv"
+    elif code_type == "tt":
+        return f"{output_dir}/tt_{params['l']}_{params['m']}_{params['n']}_{runner_type}_resume.csv"
+    else:
+        raise ValueError(f"Unknown code type: {code_type}")
+
+
+def extract_code_params_from_config(config: dict) -> Tuple[str, dict]:
+    """Extract code type and parameters from configuration.
+    
+    Returns:
+        Tuple of (code_type, code_params_dict)
+    """
+    code_type = config.get('code_type', 'BB').upper()
+    
+    code_params = {
+        'a_poly': config['a_poly'],
+        'b_poly': config['b_poly'],
+        'l': config['l'],
+        'm': config['m'],
+    }
+    
+    if code_type in ['BT', 'TT']:
+        code_params['c_poly'] = config['c_poly']
+    
+    if code_type == 'TT':
+        code_params['n'] = config['n']
+        
+    return code_type, code_params
+
+
 def build_decoder_from_circuit(
-    circuit: stim.Circuit, *, bp_iters: int, osd_order: int
+    circuit: stim.Circuit, *, bp_iters: int, osd_order: int, decompose_dem: Optional[bool] = None
 ) -> Tuple[BpOsdDecoder, np.ndarray]:
-    dem = circuit.detector_error_model(decompose_errors=False)
+    t0 = time.time()
+    # Optional DEM decomposition toggle for speed debugging
+    if decompose_dem is None:
+        decompose = os.getenv("QEC_DEM_DECOMPOSE")
+        decompose_flag = bool(decompose and decompose not in ("0", "false", "False"))
+    else:
+        decompose_flag = bool(decompose_dem)
+    if decompose_flag:
+        try:
+            dem = circuit.detector_error_model(
+                decompose_errors=True, approximate_disjoint_errors=True
+            )
+        except ValueError as e:
+            logging.warning(
+                "[DEC] DEM decomposition failed (%s). Falling back to non-decomposed DEM.",
+                str(e).splitlines()[0] if str(e) else "ValueError",
+            )
+            dem = circuit.detector_error_model(decompose_errors=False)
+    else:
+        dem = circuit.detector_error_model(decompose_errors=False)
+    t1 = time.time()
     mats = detector_error_model_to_check_matrices(
         dem, allow_undecomposed_hyperedges=True
     )
+    t2 = time.time()
+    try:
+        H = mats.check_matrix
+        O = mats.observables_matrix
+        h_shape = tuple(getattr(H, "shape", ()))
+        o_shape = tuple(getattr(O, "shape", ()))
+        # Sparsity stats when available
+        nnz = getattr(H, "nnz", None)
+        row_deg_max = col_deg_max = avg_col_deg = None
+        try:
+            H_csr = H.tocsr()
+            row_deg = np.diff(H_csr.indptr)
+            row_deg_max = int(row_deg.max()) if row_deg.size else 0
+            # Column degrees via CSC (avoid explicit transpose data copy when large)
+            H_csc = H.tocsc()
+            col_deg = np.diff(H_csc.indptr)
+            col_deg_max = int(col_deg.max()) if col_deg.size else 0
+            avg_col_deg = float(col_deg.mean()) if col_deg.size else 0.0
+        except Exception:
+            pass
+        if nnz is not None and row_deg_max is not None and col_deg_max is not None:
+            logging.info(
+                "[DEC] matrices: H%s nnz=%s row_max=%s col_max=%s col_avg=%.2f, O%s",
+                h_shape,
+                nnz,
+                row_deg_max,
+                col_deg_max,
+                avg_col_deg if avg_col_deg is not None else 0.0,
+                o_shape,
+            )
+        else:
+            logging.info("[DEC] matrices: H%s, O%s", h_shape, o_shape)
+    except Exception:
+        pass
     osd_method = "osd_e" if osd_order and osd_order > 0 else "osd0"
     bposd = BpOsdDecoder(
         mats.check_matrix,
@@ -63,6 +226,13 @@ def build_decoder_from_circuit(
         schedule="parallel",
         osd_method=osd_method,
         osd_order=osd_order,
+    )
+    t3 = time.time()
+    logging.info(
+        "[DEC] DEM build %.2fs | dem->mats %.2fs | BpOsd init %.2fs",
+        t1 - t0,
+        t2 - t1,
+        t3 - t2,
     )
     return bposd, mats.observables_matrix
 
@@ -234,7 +404,7 @@ def _setup_plot_style() -> Tuple[List[str], Any]:
     return markers, cmap
 
 
-def _group_points_by_configuration(points: List[ResultPoint]) -> Dict[Tuple[int, int, str], List[ResultPoint]]:
+def _group_points_by_configuration(points: List[ResultPoint]) -> Dict[Tuple[str, int, int, int, str], List[ResultPoint]]:
     """Group result points by (l, m, decoder) configuration.
     
     Args:
@@ -243,9 +413,11 @@ def _group_points_by_configuration(points: List[ResultPoint]) -> Dict[Tuple[int,
     Returns:
         Dictionary mapping (l, m, decoder) tuples to lists of points
     """
-    by_group: Dict[Tuple[int, int, str], List[ResultPoint]] = {}
+    by_group: Dict[Tuple[str, int, int, int, str], List[ResultPoint]] = {}
     for r in points:
-        by_group.setdefault((r.l, r.m, r.decoder), []).append(r)
+        code_t = r.code_type if getattr(r, "code_type", None) else "BB"
+        n_dim = int(getattr(r, "n", -1))
+        by_group.setdefault((code_t, int(r.l), int(r.m), n_dim, r.decoder), []).append(r)
     return by_group
 
 
@@ -274,7 +446,16 @@ def _calculate_plot_bounds(all_x_vals: List[float], all_y_vals: List[float]) -> 
     return x_min, x_max, y_min, y_max
 
 
-def _apply_plot_styling(ax: plt.Axes, l: int, m: int, decoder: str, y_mode: str, K: int | None = None) -> None:
+def _apply_plot_styling(
+    ax: plt.Axes,
+    code_type: str,
+    l: int,
+    m: int,
+    n: int | None,
+    decoder: str,
+    y_mode: str,
+    K: int | None = None,
+) -> None:
     """Apply styling to a plot axis.
     
     Args:
@@ -292,7 +473,12 @@ def _apply_plot_styling(ax: plt.Axes, l: int, m: int, decoder: str, y_mode: str,
         "per_round": "Per-round error rate",
     }.get(y_mode, "Logical error rate")
     ax.set_ylabel(y_label)
-    ax.set_title(f"BB {l}×{m} ({decoder})")
+    ct = (code_type or "BB").upper()
+    if ct == "TT" and n is not None and int(n) > 0:
+        title = f"{ct} {l}×{m}×{int(n)} ({decoder})"
+    else:
+        title = f"{ct} {l}×{m} ({decoder})"
+    ax.set_title(title)
     ax.grid(True, which="both", linestyle=":", alpha=0.6)
     ax.legend(frameon=False, fontsize=10)
 
@@ -320,7 +506,16 @@ def _apply_plot_styling(ax: plt.Axes, l: int, m: int, decoder: str, y_mode: str,
         )
 
 
-def _save_plot(fig: plt.Figure, l: int, m: int, y_mode: str, out_png: str | None, show: bool) -> None:
+def _save_plot(
+    fig: plt.Figure,
+    code_type: str,
+    l: int,
+    m: int,
+    n: int | None,
+    y_mode: str,
+    out_png: str | None,
+    show: bool,
+) -> None:
     """Save plot to file and optionally display it.
     
     Args:
@@ -339,7 +534,11 @@ def _save_plot(fig: plt.Figure, l: int, m: int, y_mode: str, out_png: str | None
             "per_logical": "per_logical", 
             "per_round": "per_round",
         }.get(y_mode, "parsed_results")
-        path = f"Data/bb_{l}_{m}_{suffix}.png"
+        ct = (code_type or "bb").lower()
+        if (code_type or "BB").upper() == "TT" and n is not None and int(n) > 0:
+            path = f"Data/{ct}_{l}_{m}_{int(n)}_{suffix}.png"
+        else:
+            path = f"Data/{ct}_{l}_{m}_{suffix}.png"
     
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     fig.savefig(path, bbox_inches="tight", dpi=200)
@@ -372,7 +571,7 @@ def plot_points(
     markers, cmap = _setup_plot_style()
     by_group = _group_points_by_configuration(points)
 
-    for (l, m, dec), pts in by_group.items():
+    for (code_t, l, m, n_dim, dec), pts in by_group.items():
         pts = list(pts)
         fig, ax = plt.subplots(1, 1, figsize=(9, 6))
         
@@ -441,5 +640,5 @@ def plot_points(
         ax.set_xscale("log")
         ax.set_yscale("log")
         
-        _apply_plot_styling(ax, l, m, dec, y_mode, K)
-        _save_plot(fig, l, m, y_mode, out_png, show)
+        _apply_plot_styling(ax, code_t, l, m, n_dim, dec, y_mode, K)
+        _save_plot(fig, code_t, l, m, n_dim, y_mode, out_png, show)

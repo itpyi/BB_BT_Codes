@@ -1,0 +1,54 @@
+{
+  "description": "Small quick-run combined BB-from-BT experiments (sanity test)",
+  "experiments": [
+    {
+      "description": "bb_from_bt_1_small",
+      "code_type": "BB",
+      "a_poly": [[0, 1], [5, 5], [2, 3], [1, 2]],
+      "b_poly": [[1, 0], [5, 7], [4, 2], [2, 6]],
+      "l": 8,
+      "m": 6,
+      "p_list": [0.001],
+      "rounds_list": [6],
+      "max_shots": 30,
+      "max_errors": 3,
+      "seed": 1,
+      "bp_iters": 10,
+      "osd_order": 0,
+      "resume_every": 15
+    },
+    {
+      "description": "bb_from_bt_2_small",
+      "code_type": "BB",
+      "a_poly": [[0, 1], [5, 5], [2, 3], [1, 2]],
+      "b_poly": [[0, 0], [3, 1], [2, 6], [1, 6]],
+      "l": 8,
+      "m": 6,
+      "p_list": [0.001],
+      "rounds_list": [6],
+      "max_shots": 30,
+      "max_errors": 3,
+      "seed": 2,
+      "bp_iters": 10,
+      "osd_order": 0,
+      "resume_every": 15
+    },
+    {
+      "description": "bb_from_bt_3_small",
+      "code_type": "BB",
+      "a_poly": [[1, 0], [5, 7], [4, 2], [2, 6]],
+      "b_poly": [[0, 0], [3, 1], [2, 6], [1, 6]],
+      "l": 8,
+      "m": 6,
+      "p_list": [0.001],
+      "rounds_list": [6],
+      "max_shots": 30,
+      "max_errors": 3,
+      "seed": 3,
+      "bp_iters": 10,
+      "osd_order": 0,
+      "resume_every": 15
+    }
+  ]
+}
+
