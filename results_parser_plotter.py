@@ -71,6 +71,9 @@ def load_resume_csv(paths: Iterable[str]) -> List[ResultPoint]:
                         seconds=0.0,
                         code_type=code_type,
                         n=n_dim,
+                        K=int(meta.get("code_k", -1)) if isinstance(meta, dict) else -1,
+                        N=int(meta.get("code_n", -1)) if isinstance(meta, dict) else -1,
+                        D=int(meta.get("code_D", -1)) if isinstance(meta, dict) else -1,
                     )
                 pt = by_key[key]
                 pt.shots += shots
@@ -136,6 +139,9 @@ def load_summary_csv(
                 m_eff = int((meta.get("m") if meta else -1) or -1)
                 code_type = str((meta.get("code_type") if meta else "BB") or "BB").upper()
                 n_dim = int((meta.get("code_n") if meta else -1) or -1)
+                K_eff = int((meta.get("code_k") if meta else -1) or -1)
+                N_eff = int((meta.get("code_n") if meta else -1) or -1)
+                D_eff = int((meta.get("code_D") if meta else -1) or -1)
                 out.append(
                     ResultPoint(
                         decoder=decoder,
@@ -148,6 +154,9 @@ def load_summary_csv(
                         seconds=seconds,
                         code_type=code_type,
                         n=n_dim,
+                        K=K_eff,
+                        N=N_eff,
+                        D=D_eff,
                     )
                 )
     return out

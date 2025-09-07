@@ -35,9 +35,9 @@ pip install numpy scipy ldpc bposd stim networkx matplotlib pytest mypy
 ```
 
 ### Generic Framework (Recommended)
-The new generic framework supports all code types through a unified API.
+The new generic framework supports all code types through a unified API, multi‑experiment configs, description‑suffixed outputs, and distance annotations.
 
-Create a JSON config file (see `config_examples/`):
+Create a JSON config file (see `config_examples/`). Each experiment must be self‑contained:
 ```json
 {
   "description": "Small BB code test",
@@ -77,6 +77,34 @@ Create a JSON config file (see `config_examples/`):
 }
 ```
 
+Multiple experiments in one config (no shared defaults; each entry is self‑contained):
+```json
+{
+  "experiments": [
+    {
+      "description": "bb_6x6_small",
+      "code_type": "BB",
+      "a_poly": [[3, 0], [0, 1], [0, 2]],
+      "b_poly": [[0, 3], [1, 0], [2, 0]],
+      "l": 6, "m": 6,
+      "p_range": {"min": 0.001, "max": 0.007, "num_points": 3},
+      "rounds_list": [6, 8],
+      "max_shots": 300
+    },
+    {
+      "description": "bb_12x6_small",
+      "code_type": "BB",
+      "a_poly": [[3, 0], [0, 1], [0, 2]],
+      "b_poly": [[0, 3], [1, 0], [2, 0]],
+      "l": 12, "m": 6,
+      "p_range": {"min": 5e-4, "max": 0.01, "num_points": 5},
+      "rounds_list": [8, 12],
+      "max_shots": 500
+    }
+  ]
+}
+```
+
 Run simulations:
 ```bash
 # Generic framework - serial simulation (any code type)
@@ -88,6 +116,9 @@ python simulation_generic.py --config config_examples/bt_small_test.json --outpu
 # Legacy runners (BB codes only)
 python simulation_serial.py --config config_examples/bb_small_test.json --output-dir results
 python simulation_multiprocess.py --config config_examples/bb_small_test.json --output-dir results
+ 
+# Example: run BT construction experiment
+python simulation_generic.py --config config_examples/construct_bt_from_bb_small.json --output-dir test_construction
 ```
 
 ### Python API
@@ -108,6 +139,11 @@ results = run_BB_serial_simulation(
 ```bash
 python results_parser_plotter.py --resume results/bb_6_6_serial_resume.csv --show
 ```
+
+Notes on outputs and plots
+- Outputs (resume/results/plots) are suffixed by the config `description` when present, e.g. `bb_8_6_serial_resume_my_exp.csv` and `bb_8_6_serial_my_exp_results.png`.
+- Resume CSV metadata includes `code_k` (K), `code_n` (N), and `code_D` (empirical distance bound).
+- Plots show an annotation like `[N=…, K=…, D ≤ …]` in the top‑right; `D` is an upper bound estimated via BP+OSD sampling.
 
 ## Testing
 ```bash
