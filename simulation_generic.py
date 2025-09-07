@@ -10,6 +10,9 @@ import os
 import time
 import json
 import argparse
+import logging
+import faulthandler
+import signal
 from typing import Iterable, List, Optional, Dict, Any, Tuple
 
 import numpy as np
@@ -38,6 +41,33 @@ from file_io_utils import (
 )
 
 
+def _enable_watchdog_from_env() -> None:
+    """Enable lightweight watchdogs if requested via env vars.
+
+    - Always register SIGUSR1 to dump stack traces on demand.
+    - If QEC_WATCHDOG_SECS is set to an int > 0, auto-dump all
+      thread tracebacks every that many seconds (non-fatal).
+    """
+    # Register on-demand stack dump (kill -USR1 <pid>)
+    try:
+        faulthandler.register(signal.SIGUSR1)
+    except Exception:
+        pass
+
+    # Optional periodic auto-dump for long hangs
+    wd = os.getenv("QEC_WATCHDOG_SECS")
+    if wd:
+        try:
+            sec = int(wd)
+            if sec > 0:
+                faulthandler.dump_traceback_later(sec, repeat=True)
+                logging.getLogger(__name__).info(
+                    f"Watchdog armed: auto-dump tracebacks every {sec}s"
+                )
+        except ValueError:
+            pass
+
+
 def run_QEC_serial_simulation(
     *,
     code_type: str,
@@ -51,6 +81,7 @@ def run_QEC_serial_simulation(
     osd_order: int = 3,
     resume_csv: Optional[str] = None,
     resume_every: int = 200,
+    decompose_dem: Optional[bool] = None,
 ) -> List[ResultPoint]:
     """Run generic QEC simulation in serial mode.
     
@@ -82,6 +113,7 @@ def run_QEC_serial_simulation(
     for rounds in rounds_list:
         for p in p_list:
             # Generate circuit (same API for all code types)
+            t0 = time.time()
             circuit = generate_full_circuit(
                 code=code,
                 rounds=rounds,
@@ -90,9 +122,16 @@ def run_QEC_serial_simulation(
                 p_spam=p,
                 seed=int(rng.integers(0, 2**32 - 1)),
             )
+            logging.info(
+                f"[SER] built circuit in {time.time() - t0:.2f}s (rounds={rounds}, p={p:.4g})"
+            )
 
+            t1 = time.time()
             decoder, obs_mat = build_decoder_from_circuit(
-                circuit, bp_iters=bp_iters, osd_order=osd_order
+                circuit, bp_iters=bp_iters, osd_order=osd_order, decompose_dem=decompose_dem
+            )
+            logging.info(
+                f"[SER] built decoder in {time.time() - t1:.2f}s (rounds={rounds}, p={p:.4g})"
             )
 
             # Prepare metadata for resume CSV
@@ -202,15 +241,18 @@ def _worker_run_generic(
     meta: dict,
     bp_iters: int,
     osd_order: int,
+    decompose_dem: Optional[bool],
     lock: Optional[Any],
     shared_shots: Optional[Any],
     shared_errors: Optional[Any],
 ) -> Tuple[int, int, float]:
     """Generic worker function for multiprocess simulation."""
     circuit = stim.Circuit(circuit_text)
+    t0 = time.time()
     decoder, obs_mat = build_decoder_from_circuit(
-        circuit, bp_iters=bp_iters, osd_order=osd_order
+        circuit, bp_iters=bp_iters, osd_order=osd_order, decompose_dem=decompose_dem
     )
+    logging.info(f"[WRK] decoder built in {time.time() - t0:.2f}s")
     sampler = circuit.compile_detector_sampler()
 
     errors = 0
@@ -219,6 +261,9 @@ def _worker_run_generic(
     max_shots_eff = int(max_shots) if max_shots is not None else DEFAULT_MAX_SHOTS
     max_errors_eff = int(max_errors) if max_errors is not None else DEFAULT_MAX_ERRORS
     
+    last_hb = time.time()
+    hb_env = os.getenv("QEC_HEARTBEAT_SECS")
+    hb_sec = int(hb_env) if (hb_env and hb_env.isdigit()) else 0
     while True:
         # Reserve work under lock to avoid exceeding global caps
         if lock is not None:
@@ -274,6 +319,14 @@ def _worker_run_generic(
             if lock is not None:
                 lock.release()
 
+        # Optional worker heartbeat
+        now = time.time()
+        if hb_sec > 0 and (now - last_hb) >= hb_sec:
+            last_hb = now
+            cur_shots = shared_shots.value if shared_shots is not None else local_shots
+            cur_errors = shared_errors.value if shared_errors is not None else errors
+            logging.info(f"[WRK] heartbeat: shots={cur_shots}, errors={cur_errors}")
+
         if resume_csv:
             append_resume_csv(
                 resume_csv,
@@ -307,6 +360,7 @@ def run_QEC_multiprocess_simulation(
     num_workers: int = 2,
     resume_csv: Optional[str] = None,
     resume_every: int = 50,
+    decompose_dem: Optional[bool] = None,
 ) -> List[ResultPoint]:
     """Run generic QEC simulation in multiprocess mode.
     
@@ -407,6 +461,7 @@ def run_QEC_multiprocess_simulation(
                     "meta": meta,
                     "bp_iters": bp_iters,
                     "osd_order": osd_order,
+                    "decompose_dem": decompose_dem,
                     "lock": lock,
                     "shared_shots": shared_shots,
                     "shared_errors": shared_errors,
@@ -454,7 +509,7 @@ def load_config_from_json(json_path: str) -> dict:
         return json.load(f)
 
 
-def run_simulation_from_config(config: dict, *, output_dir: str = "Data", multiprocess: bool = False) -> List[ResultPoint]:
+def run_simulation_from_config(config: dict, *, output_dir: str = "Data", multiprocess: bool = False, decompose_dem: Optional[bool] = None) -> List[ResultPoint]:
     """Run simulation using configuration dictionary."""
     # Extract code type and parameters
     code_type, code_params = extract_code_params_from_config(config)
@@ -482,6 +537,10 @@ def run_simulation_from_config(config: dict, *, output_dir: str = "Data", multip
     resume_every = config.get('resume_every', DEFAULT_RESUME_EVERY)
     
     # Choose simulation runner
+    # Allow config to specify dem_decompose; CLI arg overrides if provided
+    config_decompose = config.get('dem_decompose', None)
+    if decompose_dem is None:
+        decompose_dem = config_decompose
     if multiprocess:
         num_workers = config.get('num_workers', 2)
         return run_QEC_multiprocess_simulation(
@@ -497,6 +556,7 @@ def run_simulation_from_config(config: dict, *, output_dir: str = "Data", multip
             num_workers=num_workers,
             resume_csv=resume_csv,
             resume_every=resume_every,
+            decompose_dem=decompose_dem,
         )
     else:
         return run_QEC_serial_simulation(
@@ -511,6 +571,7 @@ def run_simulation_from_config(config: dict, *, output_dir: str = "Data", multip
             osd_order=osd_order,
             resume_csv=resume_csv,
             resume_every=resume_every,
+            decompose_dem=decompose_dem,
         )
 
 
@@ -519,7 +580,14 @@ def main() -> None:
     parser.add_argument('--config', type=str, required=True, help='JSON configuration file path')
     parser.add_argument('--output-dir', type=str, default='Data', help='Output directory for results')
     parser.add_argument('--multiprocess', action='store_true', help='Use multiprocess simulation')
+    parser.add_argument('--dem-decompose', dest='dem_decompose', action='store_true', help='Decompose DEM for faster decoding')
+    parser.add_argument('--no-dem-decompose', dest='dem_decompose', action='store_false', help='Disable DEM decomposition')
+    parser.set_defaults(dem_decompose=None)
     args = parser.parse_args()
+
+    # Basic logging
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    _enable_watchdog_from_env()
 
     # Load configuration from JSON file
     print(f"Loading configuration from {args.config}")
@@ -529,7 +597,12 @@ def main() -> None:
     code_type, code_params = extract_code_params_from_config(config)
     
     # Run simulation
-    results = run_simulation_from_config(config, output_dir=args.output_dir, multiprocess=args.multiprocess)
+    results = run_simulation_from_config(
+        config,
+        output_dir=args.output_dir,
+        multiprocess=args.multiprocess,
+        decompose_dem=args.dem_decompose,
+    )
     
     # Build code for metadata
     code_meta = build_code_generic(code_type, **code_params)

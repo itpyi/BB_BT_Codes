@@ -191,11 +191,13 @@ def generate_full_circuit(
     # with open("circuit_debug_diagram.svg", "w") as f:
     #     f.write(str(diagram))
 
-    diagram = c.diagram('timeline-svg')
-    # Convert diagram object to string before writing
-    with open("circuit_debug_diagram.svg", "w") as f:
-        f.write(str(diagram))
-    c.to_file("circuit_debug_circuit.stim")
+    # Optional heavy debug artifacts guarded by env flag
+    import os as _os
+    if _os.getenv("QEC_DEBUG_DIAGRAM"):
+        diagram = c.diagram('timeline-svg')
+        with open("circuit_debug_diagram.svg", "w") as f:
+            f.write(str(diagram))
+        c.to_file("circuit_debug_circuit.stim")
     print(f"mx={mx}, mz={mz}, n={n}, rounds={rounds}, total_ticks={len(c)}")
 
     return c

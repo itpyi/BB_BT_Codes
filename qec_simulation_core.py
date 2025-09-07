@@ -20,6 +20,8 @@ from matplotlib import pyplot as plt
 from bposd.css import css_code
 from ldpc.bposd_decoder import BpOsdDecoder
 from ldpc.ckt_noise.dem_matrices import detector_error_model_to_check_matrices
+import time
+import logging
 
 
 @dataclass
@@ -154,12 +156,59 @@ def extract_code_params_from_config(config: dict) -> Tuple[str, dict]:
 
 
 def build_decoder_from_circuit(
-    circuit: stim.Circuit, *, bp_iters: int, osd_order: int
+    circuit: stim.Circuit, *, bp_iters: int, osd_order: int, decompose_dem: Optional[bool] = None
 ) -> Tuple[BpOsdDecoder, np.ndarray]:
-    dem = circuit.detector_error_model(decompose_errors=False)
+    t0 = time.time()
+    # Optional DEM decomposition toggle for speed debugging
+    if decompose_dem is None:
+        decompose = os.getenv("QEC_DEM_DECOMPOSE")
+        decompose_flag = bool(decompose and decompose not in ("0", "false", "False"))
+    else:
+        decompose_flag = bool(decompose_dem)
+    if decompose_flag:
+        dem = circuit.detector_error_model(
+            decompose_errors=True, approximate_disjoint_errors=True
+        )
+    else:
+        dem = circuit.detector_error_model(decompose_errors=False)
+    t1 = time.time()
     mats = detector_error_model_to_check_matrices(
         dem, allow_undecomposed_hyperedges=True
     )
+    t2 = time.time()
+    try:
+        H = mats.check_matrix
+        O = mats.observables_matrix
+        h_shape = tuple(getattr(H, "shape", ()))
+        o_shape = tuple(getattr(O, "shape", ()))
+        # Sparsity stats when available
+        nnz = getattr(H, "nnz", None)
+        row_deg_max = col_deg_max = avg_col_deg = None
+        try:
+            H_csr = H.tocsr()
+            row_deg = np.diff(H_csr.indptr)
+            row_deg_max = int(row_deg.max()) if row_deg.size else 0
+            # Column degrees via CSC (avoid explicit transpose data copy when large)
+            H_csc = H.tocsc()
+            col_deg = np.diff(H_csc.indptr)
+            col_deg_max = int(col_deg.max()) if col_deg.size else 0
+            avg_col_deg = float(col_deg.mean()) if col_deg.size else 0.0
+        except Exception:
+            pass
+        if nnz is not None and row_deg_max is not None and col_deg_max is not None:
+            logging.info(
+                "[DEC] matrices: H%s nnz=%s row_max=%s col_max=%s col_avg=%.2f, O%s",
+                h_shape,
+                nnz,
+                row_deg_max,
+                col_deg_max,
+                avg_col_deg if avg_col_deg is not None else 0.0,
+                o_shape,
+            )
+        else:
+            logging.info("[DEC] matrices: H%s, O%s", h_shape, o_shape)
+    except Exception:
+        pass
     osd_method = "osd_e" if osd_order and osd_order > 0 else "osd0"
     bposd = BpOsdDecoder(
         mats.check_matrix,
@@ -170,6 +219,13 @@ def build_decoder_from_circuit(
         schedule="parallel",
         osd_method=osd_method,
         osd_order=osd_order,
+    )
+    t3 = time.time()
+    logging.info(
+        "[DEC] DEM build %.2fs | dem->mats %.2fs | BpOsd init %.2fs",
+        t1 - t0,
+        t2 - t1,
+        t3 - t2,
     )
     return bposd, mats.observables_matrix
 

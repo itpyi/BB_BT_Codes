@@ -12,7 +12,7 @@
     "max": 0.01,
     "num_points": 3
   },
-  "rounds_list": [3, 4],
+  "rounds_list": [6],
   "max_shots": 300,
   "max_errors": 5,
   "seed": 42,

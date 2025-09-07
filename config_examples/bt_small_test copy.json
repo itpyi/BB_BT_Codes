@@ -1,9 +1,9 @@
 {
   "description": "Small BT (Bivariate Tricycle) code test",
   "code_type": "BT",
-  "a_poly": [[3, 0], [0, 1], [0, 2]],
-  "b_poly": [[0, 3], [1, 0], [2, 0]],
-  "c_poly": [[1, 1], [0, 2], [2, 0]],
+  "a_poly": [[0, 1], [5, 5], [2, 3], [1, 2]],
+  "b_poly": [[1, 0], [5, 7], [4, 2], [2, 6]],
+  "c_poly": [[0, 0], [3, 1], [2, 6], [1, 6]],
   "l": 6,
   "m": 8,
   "p_range": {
