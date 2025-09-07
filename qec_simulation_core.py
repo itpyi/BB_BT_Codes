@@ -166,9 +166,16 @@ def build_decoder_from_circuit(
     else:
         decompose_flag = bool(decompose_dem)
     if decompose_flag:
-        dem = circuit.detector_error_model(
-            decompose_errors=True, approximate_disjoint_errors=True
-        )
+        try:
+            dem = circuit.detector_error_model(
+                decompose_errors=True, approximate_disjoint_errors=True
+            )
+        except ValueError as e:
+            logging.warning(
+                "[DEC] DEM decomposition failed (%s). Falling back to non-decomposed DEM.",
+                str(e).splitlines()[0] if str(e) else "ValueError",
+            )
+            dem = circuit.detector_error_model(decompose_errors=False)
     else:
         dem = circuit.detector_error_model(decompose_errors=False)
     t1 = time.time()

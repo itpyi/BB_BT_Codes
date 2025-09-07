@@ -1,0 +1,23 @@
+{
+  "description": "Working TT code [[[192, 26,(16,8)] with corrected inverse polynomials (l,m,n)=(4,4,4)",
+  "code_type": "TT",
+  "a_poly": [[2, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
+  "b_poly": [[1, 0, 0], [0, 2, 3], [0, 1, 0], [0, 0, 3]],
+  "c_poly": [[3, 0, 0], [0, 1, 0], [0, 0, 3], [0, 0, 2]],
+  "l": 4,
+  "m": 4,
+  "n": 4,
+  "p_range": {
+    "min": 0.001,
+    "max": 0.01,
+    "num_points": 3
+  },
+  "rounds_list": [3],
+  "max_shots": 300,
+  "max_errors": 5,
+  "seed": 42,
+  "bp_iters": 20,
+  "osd_order": 0,
+  "num_workers": 2,
+  "resume_every": 30
+}

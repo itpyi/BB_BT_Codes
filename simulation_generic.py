@@ -13,7 +13,7 @@ import argparse
 import logging
 import faulthandler
 import signal
-from typing import Iterable, List, Optional, Dict, Any, Tuple
+from typing import Iterable, List, Optional, Dict, Any, Tuple, Union
 
 import numpy as np
 import stim
@@ -503,76 +503,112 @@ def run_QEC_multiprocess_simulation(
     return results
 
 
-def load_config_from_json(json_path: str) -> dict:
-    """Load simulation configuration from JSON file."""
+def load_config_from_json(json_path: str) -> Any:
+    """Load simulation configuration from JSON file.
+
+    Supports:
+    - Single experiment (dict) matching the existing schema.
+    - Multi-experiment: either a list of dicts, or a dict with key
+      "experiments": list[dict]. No implicit parameter merging is performed.
+    """
     with open(json_path, 'r') as f:
         return json.load(f)
 
 
-def run_simulation_from_config(config: dict, *, output_dir: str = "Data", multiprocess: bool = False, decompose_dem: Optional[bool] = None) -> List[ResultPoint]:
-    """Run simulation using configuration dictionary."""
-    # Extract code type and parameters
-    code_type, code_params = extract_code_params_from_config(config)
-    
-    # Convert p_range to p_list if needed
-    if 'p_range' in config:
-        p_min, p_max = config['p_range']['min'], config['p_range']['max']
-        num_points = config['p_range']['num_points']
-        p_list = np.logspace(np.log10(p_min), np.log10(p_max), num_points)
-    else:
-        p_list = config['p_list']
-    
-    rounds_list = config['rounds_list']
-    
-    # Optional parameters with defaults
-    max_shots = config.get('max_shots', 10_000)
-    max_errors = config.get('max_errors', None)
-    seed = config.get('seed', 0)
-    bp_iters = config.get('bp_iters', DEFAULT_BP_ITERS)
-    osd_order = config.get('osd_order', DEFAULT_OSD_ORDER)
-    resume_csv = config.get('resume_csv', None)
-    if resume_csv is None:
-        runner_type = "mp" if multiprocess else "serial"
-        resume_csv = generate_default_resume_csv(code_type, output_dir, runner_type, **code_params)
-    resume_every = config.get('resume_every', DEFAULT_RESUME_EVERY)
-    
-    # Choose simulation runner
-    # Allow config to specify dem_decompose; CLI arg overrides if provided
-    config_decompose = config.get('dem_decompose', None)
-    if decompose_dem is None:
-        decompose_dem = config_decompose
-    if multiprocess:
-        num_workers = config.get('num_workers', 2)
-        return run_QEC_multiprocess_simulation(
-            code_type=code_type,
-            code_params=code_params,
-            p_list=p_list,
-            rounds_list=rounds_list,
-            max_shots=max_shots,
-            max_errors=max_errors,
-            seed=seed,
-            bp_iters=bp_iters,
-            osd_order=osd_order,
-            num_workers=num_workers,
-            resume_csv=resume_csv,
-            resume_every=resume_every,
-            decompose_dem=decompose_dem,
-        )
-    else:
-        return run_QEC_serial_simulation(
-            code_type=code_type,
-            code_params=code_params,
-            p_list=p_list,
-            rounds_list=rounds_list,
-            max_shots=max_shots,
-            max_errors=max_errors,
-            seed=seed,
-            bp_iters=bp_iters,
-            osd_order=osd_order,
-            resume_csv=resume_csv,
-            resume_every=resume_every,
-            decompose_dem=decompose_dem,
-        )
+def _expand_experiments(config: Any) -> List[dict]:
+    """Normalize config into a list of experiment dicts.
+
+    Accepted forms:
+    - Single dict: returns [dict]
+    - List[dict]: returns as-is (filters to dict items)
+    - Dict with {"experiments": [dict]}: returns that list (no merging)
+
+    No cross-experiment defaults or parameter merging is applied.
+    Each experiment must be self-contained.
+    """
+    if isinstance(config, list):
+        return [c for c in config if isinstance(c, dict)]
+    if isinstance(config, dict) and isinstance(config.get("experiments"), list):
+        return [c for c in config["experiments"] if isinstance(c, dict)]
+    if isinstance(config, dict):
+        # Treat as single experiment
+        return [config]
+    raise ValueError("Unsupported config format. Expected dict, list[dict], or {experiments:[...]}.")
+
+
+def run_simulation_from_config(config: Union[dict, List[dict]], *, output_dir: str = "Data", multiprocess: bool = False, decompose_dem: Optional[bool] = None) -> List[ResultPoint]:
+    """Run simulation using configuration dictionary or multi-experiment config.
+
+    - If given a single config dict, runs one experiment (original behavior).
+    - If given a list of dicts, or a dict containing key "experiments", runs each.
+    """
+    # Expand to experiments list if needed
+    exps = _expand_experiments(config)
+    all_results: List[ResultPoint] = []
+    for exp in exps:
+        # Extract code type and parameters
+        code_type, code_params = extract_code_params_from_config(exp)
+
+        # Convert p_range to p_list if needed
+        if 'p_range' in exp:
+            p_min, p_max = exp['p_range']['min'], exp['p_range']['max']
+            num_points = exp['p_range']['num_points']
+            p_list = np.logspace(np.log10(p_min), np.log10(p_max), num_points)
+        else:
+            p_list = exp['p_list']
+
+        rounds_list = exp['rounds_list']
+
+        # Optional parameters with defaults
+        max_shots = exp.get('max_shots', 10_000)
+        max_errors = exp.get('max_errors', None)
+        seed = exp.get('seed', 0)
+        bp_iters = exp.get('bp_iters', DEFAULT_BP_ITERS)
+        osd_order = exp.get('osd_order', DEFAULT_OSD_ORDER)
+        resume_csv = exp.get('resume_csv', None)
+        if resume_csv is None:
+            runner_type = "mp" if multiprocess else "serial"
+            resume_csv = generate_default_resume_csv(code_type, output_dir, runner_type, **code_params)
+        resume_every = exp.get('resume_every', DEFAULT_RESUME_EVERY)
+
+        # Choose simulation runner
+        # Allow config to specify dem_decompose; CLI arg overrides if provided
+        config_decompose = exp.get('dem_decompose', None)
+        decompose_eff = decompose_dem if decompose_dem is not None else config_decompose
+        if multiprocess:
+            num_workers = exp.get('num_workers', 2)
+            res = run_QEC_multiprocess_simulation(
+                code_type=code_type,
+                code_params=code_params,
+                p_list=p_list,
+                rounds_list=rounds_list,
+                max_shots=max_shots,
+                max_errors=max_errors,
+                seed=seed,
+                bp_iters=bp_iters,
+                osd_order=osd_order,
+                num_workers=num_workers,
+                resume_csv=resume_csv,
+                resume_every=resume_every,
+                decompose_dem=decompose_eff,
+            )
+        else:
+            res = run_QEC_serial_simulation(
+                code_type=code_type,
+                code_params=code_params,
+                p_list=p_list,
+                rounds_list=rounds_list,
+                max_shots=max_shots,
+                max_errors=max_errors,
+                seed=seed,
+                bp_iters=bp_iters,
+                osd_order=osd_order,
+                resume_csv=resume_csv,
+                resume_every=resume_every,
+                decompose_dem=decompose_eff,
+            )
+        all_results.extend(res)
+    return all_results
 
 
 def main() -> None:
@@ -591,76 +627,76 @@ def main() -> None:
 
     # Load configuration from JSON file
     print(f"Loading configuration from {args.config}")
-    config = load_config_from_json(args.config)
-    
-    # Extract code info for output naming
-    code_type, code_params = extract_code_params_from_config(config)
-    
-    # Run simulation
-    results = run_simulation_from_config(
-        config,
-        output_dir=args.output_dir,
-        multiprocess=args.multiprocess,
-        decompose_dem=args.dem_decompose,
-    )
-    
-    # Build code for metadata
-    code_meta = build_code_generic(code_type, **code_params)
-    
-    # Aggregate from resume CSV for full totals (including previous runs)
+    cfg_raw = load_config_from_json(args.config)
+
+    # Expand into experiments
+    experiments = _expand_experiments(cfg_raw)
+
+    # Run each experiment and emit outputs independently
     from results_parser_plotter import load_resume_csv
-    
     runner_type = "mp" if args.multiprocess else "serial"
-    resume_path = generate_default_resume_csv(code_type, args.output_dir, runner_type, **code_params)
-    aggregated = load_resume_csv([resume_path]) if os.path.exists(resume_path) else []
-
-    # Ensure output directory exists
     os.makedirs(args.output_dir, exist_ok=True)
-    
-    # Generate output filename based on code type
-    code_prefix = code_type.lower()
-    if code_type == "TT":
-        size_suffix = f"{code_params['l']}_{code_params['m']}_{code_params['n']}"
-    else:
-        size_suffix = f"{code_params['l']}_{code_params['m']}"
-    
-    output_base = f"{args.output_dir}/{code_prefix}_{size_suffix}_{runner_type}"
 
-    # Save CSV results
-    save_summary_csv(
-        aggregated if aggregated else results,
-        f"{output_base}_results.csv",
-        meta_common={
-            "code_type": code_type,
-            "code_k": int(code_meta.K),
-            "code_n": int(code_meta.N),
-            **{f"code_{k}": v for k, v in code_params.items()},
-        },
-    )
-    
-    # Generate plots from aggregated points when available; otherwise from this run's results
-    plot_src = aggregated if aggregated else results
-    if plot_src:
-        plot_points(
-            plot_src, out_png=f"{output_base}_results.png", show=False, y_mode="ler"
+    for idx, exp in enumerate(experiments, start=1):
+        # Run
+        results = run_simulation_from_config(
+            exp,
+            output_dir=args.output_dir,
+            multiprocess=args.multiprocess,
+            decompose_dem=args.dem_decompose,
         )
-        plot_points(
-            plot_src,
-            out_png=f"{output_base}_results_per_logical.png",
-            show=False,
-            y_mode="per_logical",
-            K=int(code_meta.K),
+
+        # Build code for metadata & filenames
+        code_type, code_params = extract_code_params_from_config(exp)
+        code_meta = build_code_generic(code_type, **code_params)
+
+        # Aggregate from resume CSV for full totals (including previous runs)
+        resume_path = generate_default_resume_csv(code_type, args.output_dir, runner_type, **code_params)
+        aggregated = load_resume_csv([resume_path]) if os.path.exists(resume_path) else []
+
+        # Output base
+        code_prefix = code_type.lower()
+        if code_type == "TT":
+            size_suffix = f"{code_params['l']}_{code_params['m']}_{code_params['n']}"
+        else:
+            size_suffix = f"{code_params['l']}_{code_params['m']}"
+        output_base = f"{args.output_dir}/{code_prefix}_{size_suffix}_{runner_type}"
+
+        # Save CSV results
+        save_summary_csv(
+            aggregated if aggregated else results,
+            f"{output_base}_results.csv",
+            meta_common={
+                "code_type": code_type,
+                "code_k": int(code_meta.K),
+                "code_n": int(code_meta.N),
+                **{f"code_{k}": v for k, v in code_params.items()},
+            },
         )
-        plot_points(
-            plot_src,
-            out_png=f"{output_base}_results_per_round.png",
-            show=False,
-            y_mode="per_round",
-        )
-        print(f"Results saved to {output_base}_results.csv")
-        print(f"Plots saved to {output_base}_results*.png")
-    else:
-        print("No results to plot")
+
+        # Plots
+        plot_src = aggregated if aggregated else results
+        if plot_src:
+            plot_points(
+                plot_src, out_png=f"{output_base}_results.png", show=False, y_mode="ler"
+            )
+            plot_points(
+                plot_src,
+                out_png=f"{output_base}_results_per_logical.png",
+                show=False,
+                y_mode="per_logical",
+                K=int(code_meta.K),
+            )
+            plot_points(
+                plot_src,
+                out_png=f"{output_base}_results_per_round.png",
+                show=False,
+                y_mode="per_round",
+            )
+            print(f"[{idx}/{len(experiments)}] Results saved to {output_base}_results.csv")
+            print(f"[{idx}/{len(experiments)}] Plots saved to {output_base}_results*.png")
+        else:
+            print(f"[{idx}/{len(experiments)}] No results to plot")
 
 
 if __name__ == "__main__":

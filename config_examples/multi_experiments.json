@@ -1,0 +1,35 @@
+{
+  "description": "Multiple experiments in one file; each experiment self-contained (no shared defaults)",
+  "experiments": [
+    {
+      "code_type": "BB",
+      "a_poly": [[3, 0], [0, 1], [0, 2]],
+      "b_poly": [[0, 3], [1, 0], [2, 0]],
+      "l": 6,
+      "m": 6,
+      "p_range": {"min": 0.001, "max": 0.007, "num_points": 3},
+      "rounds_list": [6, 8],
+      "max_shots": 300,
+      "max_errors": 10,
+      "seed": 42,
+      "bp_iters": 20,
+      "osd_order": 0,
+      "resume_every": 100
+    },
+    {
+      "code_type": "BB",
+      "a_poly": [[3, 0], [0, 1], [0, 2]],
+      "b_poly": [[0, 3], [1, 0], [2, 0]],
+      "l": 12,
+      "m": 6,
+      "p_range": {"min": 0.0005, "max": 0.01, "num_points": 5},
+      "rounds_list": [8, 12],
+      "max_shots": 500,
+      "max_errors": 50,
+      "seed": 123,
+      "bp_iters": 20,
+      "osd_order": 0,
+      "resume_every": 200
+    }
+  ]
+}

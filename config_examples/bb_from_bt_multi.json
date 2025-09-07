@@ -1,0 +1,57 @@
+{
+  "description": "Combined BB-from-BT experiments (full parameters, self-contained)",
+  "experiments": [
+    {
+      "description": "bb_from_bt_1",
+      "code_type": "BB",
+      "a_poly": [[0, 1], [5, 5], [2, 3], [1, 2]],
+      "b_poly": [[1, 0], [5, 7], [4, 2], [2, 6]],
+      "l": 8,
+      "m": 6,
+      "p_range": { "min": 0.001, "max": 0.007, "num_points": 3 },
+      "rounds_list": [6, 8],
+      "max_shots": 300,
+      "max_errors": 10,
+      "seed": 42,
+      "bp_iters": 20,
+      "osd_order": 0,
+      "num_workers": 2,
+      "resume_every": 100
+    },
+    {
+      "description": "bb_from_bt_2",
+      "code_type": "BB",
+      "a_poly": [[0, 1], [5, 5], [2, 3], [1, 2]],
+      "b_poly": [[0, 0], [3, 1], [2, 6], [1, 6]],
+      "l": 8,
+      "m": 6,
+      "p_range": { "min": 0.001, "max": 0.007, "num_points": 3 },
+      "rounds_list": [6, 8],
+      "max_shots": 300,
+      "max_errors": 10,
+      "seed": 42,
+      "bp_iters": 20,
+      "osd_order": 0,
+      "num_workers": 2,
+      "resume_every": 100
+    },
+    {
+      "description": "bb_from_bt_3",
+      "code_type": "BB",
+      "a_poly": [[1, 0], [5, 7], [4, 2], [2, 6]],
+      "b_poly": [[0, 0], [3, 1], [2, 6], [1, 6]],
+      "l": 8,
+      "m": 6,
+      "p_range": { "min": 0.001, "max": 0.007, "num_points": 3 },
+      "rounds_list": [6, 8],
+      "max_shots": 300,
+      "max_errors": 10,
+      "seed": 42,
+      "bp_iters": 20,
+      "osd_order": 0,
+      "num_workers": 2,
+      "resume_every": 100
+    }
+  ]
+}
+
