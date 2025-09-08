@@ -52,4 +52,6 @@ test/BB_code_benchmark
 deprecated_code/*
 Review_report.md
 
+uv.lock
+
 # sinter_example.py

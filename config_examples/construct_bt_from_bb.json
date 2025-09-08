@@ -10,7 +10,7 @@
       "l": 6,
       "m": 6,
       "p_range": {
-        "min": 0.001,
+        "min": 0.002,
         "max": 0.008,
         "num_points": 5
       },
@@ -20,6 +20,7 @@
       "seed": 1,
       "bp_iters": 10,
       "osd_order": 0,
+      "num_workers": 4,
       "resume_every": 100
     },
     {
@@ -31,16 +32,17 @@
       "l": 6,
       "m": 6,
       "p_range": {
-        "min": 0.001,
+        "min": 0.002,
         "max": 0.008,
         "num_points": 5
       },
       "rounds_list": [3],
-      "max_shots": 30,
-      "max_errors": 3,
+      "max_shots": 10000,
+      "max_errors": 100,
       "seed": 1,
       "bp_iters": 10,
       "osd_order": 0,
+      "num_workers": 4,
       "resume_every": 100
     },
     {
@@ -52,7 +54,7 @@
       "l": 6,
       "m": 6,
       "p_range": {
-        "min": 0.001,
+        "min": 0.002,
         "max": 0.008,
         "num_points": 5
       },
@@ -62,6 +64,7 @@
       "seed": 1,
       "bp_iters": 10,
       "osd_order": 0,
+      "num_workers": 4,
       "resume_every": 100
     }
   ]

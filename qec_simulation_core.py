@@ -54,7 +54,7 @@ def _estimate_distances(
     p: float = 0.01,
     bp_iters: int = 20,
     osd_order: int = 0,
-    iters: int = 200,
+    iters: int = 2000,
 ) -> tuple[int, int]:
     """Empirically estimate X/Z distances using BP+OSD sampling.
 
