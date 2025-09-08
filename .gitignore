@@ -51,6 +51,8 @@ AGENTS.md
 test/BB_code_benchmark
 deprecated_code/*
 Review_report.md
+test_construction
+goal.md
 
 uv.lock
 

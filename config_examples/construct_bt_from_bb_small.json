@@ -16,6 +16,7 @@
       "seed": 1,
       "bp_iters": 10,
       "osd_order": 0,
+      "num_workers": 2,
       "resume_every": 15
     },
     {
@@ -26,11 +27,14 @@
       "c_poly": [[0, 0], [1, 1]],
       "l": 6,
       "m": 6,
+      "p_list": [0.005],
+      "rounds_list": [3],
       "max_shots": 30,
       "max_errors": 3,
       "seed": 1,
       "bp_iters": 10,
       "osd_order": 0,
+      "num_workers": 2,
       "resume_every": 15
     },
     {
@@ -48,6 +52,7 @@
       "seed": 1,
       "bp_iters": 10,
       "osd_order": 0,
+      "num_workers": 2,
       "resume_every": 15
     }
   ]
