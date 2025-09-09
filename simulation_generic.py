@@ -94,6 +94,7 @@ def run_QEC_serial_simulation(
     resume_csv: Optional[str] = None,
     resume_every: int = 200,
     decompose_dem: Optional[bool] = None,
+    use_bt_singleshot: bool = True,
 ) -> List[ResultPoint]:
     """Run generic QEC simulation in serial mode.
     
@@ -127,15 +128,6 @@ def run_QEC_serial_simulation(
             # Generate circuit (same API for all code types)
             t0 = time.time()
             
-            # Enable meta_check for BT codes based on config or default behavior
-            config_meta_check = code_params.get('meta_check', None)
-            if config_meta_check is not None:
-                meta_check_enabled = bool(config_meta_check)
-                print(f"[DEBUG] meta_check from config: {config_meta_check} -> enabled: {meta_check_enabled}")
-            else:
-                # Default: enable for BT codes if they have h_meta attribute
-                meta_check_enabled = code_type == "BT" and hasattr(code, 'h_meta')
-                print(f"[DEBUG] meta_check default for BT with h_meta: {meta_check_enabled}")
             
             circuit = generate_full_circuit(
                 code=code,
@@ -144,7 +136,6 @@ def run_QEC_serial_simulation(
                 p2=p,
                 p_spam=p,
                 seed=int(rng.integers(0, 2**32 - 1)),
-                meta_check=meta_check_enabled,
             )
             logging.info(
                 f"[SER] built circuit in {time.time() - t0:.2f}s (rounds={rounds}, p={p:.4g})"
@@ -152,7 +143,13 @@ def run_QEC_serial_simulation(
 
             t1 = time.time()
             decoder, obs_mat = build_decoder_from_circuit(
-                circuit, bp_iters=bp_iters, osd_order=osd_order, decompose_dem=decompose_dem
+                circuit, 
+                bp_iters=bp_iters, 
+                osd_order=osd_order, 
+                decompose_dem=decompose_dem,
+                code=code,
+                p=p,
+                use_bt_singleshot=use_bt_singleshot
             )
             logging.info(
                 f"[SER] built decoder in {time.time() - t1:.2f}s (rounds={rounds}, p={p:.4g})"
@@ -270,12 +267,32 @@ def _worker_run_generic(
     lock: Optional[Any],
     shared_shots: Optional[Any],
     shared_errors: Optional[Any],
+    code_type: Optional[str] = None,
+    p_rate: Optional[float] = None,
 ) -> Tuple[int, int, float]:
     """Generic worker function for multiprocess simulation."""
     circuit = stim.Circuit(circuit_text)
     t0 = time.time()
+    # For multiprocess workers, BT two-stage decoder requires code reconstruction
+    code_obj = None
+    if code_type == "BT" and p_rate is not None:
+        try:
+            # Extract code parameters from worker metadata
+            code_params = {k.replace('code_', ''): v for k, v in meta.items() if k.startswith('code_')}
+            if 'a_poly' in code_params and 'b_poly' in code_params and 'c_poly' in code_params:
+                code_obj = build_code_generic(code_type, **code_params)
+                logging.info(f"[WRK] Reconstructed {code_type} code for two-stage decoder")
+        except Exception as e:
+            logging.warning(f"[WRK] Failed to reconstruct BT code: {e}, using standard decoder")
+    
     decoder, obs_mat = build_decoder_from_circuit(
-        circuit, bp_iters=bp_iters, osd_order=osd_order, decompose_dem=decompose_dem
+        circuit, 
+        bp_iters=bp_iters, 
+        osd_order=osd_order, 
+        decompose_dem=decompose_dem,
+        code=code_obj,
+        p=p_rate,
+        use_bt_singleshot=True  # Always try BT decoder in workers if code available
     )
     logging.info(f"[WRK] decoder built in {time.time() - t0:.2f}s")
     sampler = circuit.compile_detector_sampler()
@@ -386,6 +403,7 @@ def run_QEC_multiprocess_simulation(
     resume_csv: Optional[str] = None,
     resume_every: int = 50,
     decompose_dem: Optional[bool] = None,
+    use_bt_singleshot: bool = True,
 ) -> List[ResultPoint]:
     """Run generic QEC simulation in multiprocess mode.
     
@@ -421,15 +439,6 @@ def run_QEC_multiprocess_simulation(
         for p in p_list:
             # Build circuit once and pass its text to workers
             
-            # Enable meta_check for BT codes based on config or default behavior
-            config_meta_check = code_params.get('meta_check', None)
-            if config_meta_check is not None:
-                meta_check_enabled = bool(config_meta_check)
-                print(f"[DEBUG] meta_check from config: {config_meta_check} -> enabled: {meta_check_enabled}")
-            else:
-                # Default: enable for BT codes if they have h_meta attribute
-                meta_check_enabled = code_type == "BT" and hasattr(code, 'h_meta')
-                print(f"[DEBUG] meta_check default for BT with h_meta: {meta_check_enabled}")
             
             circuit = generate_full_circuit(
                 code=code,
@@ -438,7 +447,6 @@ def run_QEC_multiprocess_simulation(
                 p2=p,
                 p_spam=p,
                 seed=int(rng.integers(0, 2**32 - 1)),
-                meta_check=meta_check_enabled,
             )
             circuit_text = str(circuit)
 
@@ -503,6 +511,8 @@ def run_QEC_multiprocess_simulation(
                     "lock": lock,
                     "shared_shots": shared_shots,
                     "shared_errors": shared_errors,
+                    "code_type": code_type,
+                    "p_rate": p,
                 }
                 for _ in range(w)
             ]
@@ -607,6 +617,9 @@ def run_simulation_from_config(config: Union[dict, List[dict]], *, output_dir: s
         bp_iters = exp.get('bp_iters', DEFAULT_BP_ITERS)
         osd_order = exp.get('osd_order', DEFAULT_OSD_ORDER)
         resume_csv = exp.get('resume_csv', None)
+        
+        # BT two-stage decoder configuration
+        use_bt_singleshot = exp.get('use_bt_singleshot', True)
         if resume_csv is None:
             runner_type = "mp" if multiprocess else "serial"
             resume_csv = generate_default_resume_csv(
@@ -634,6 +647,7 @@ def run_simulation_from_config(config: Union[dict, List[dict]], *, output_dir: s
                 resume_csv=resume_csv,
                 resume_every=resume_every,
                 decompose_dem=decompose_eff,
+                use_bt_singleshot=use_bt_singleshot,
             )
         else:
             res = run_QEC_serial_simulation(
@@ -649,6 +663,7 @@ def run_simulation_from_config(config: Union[dict, List[dict]], *, output_dir: s
                 resume_csv=resume_csv,
                 resume_every=resume_every,
                 decompose_dem=decompose_eff,
+                use_bt_singleshot=use_bt_singleshot,
             )
         all_results.extend(res)
     return all_results
