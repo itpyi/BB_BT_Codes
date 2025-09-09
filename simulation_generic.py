@@ -126,6 +126,17 @@ def run_QEC_serial_simulation(
         for p in p_list:
             # Generate circuit (same API for all code types)
             t0 = time.time()
+            
+            # Enable meta_check for BT codes based on config or default behavior
+            config_meta_check = code_params.get('meta_check', None)
+            if config_meta_check is not None:
+                meta_check_enabled = bool(config_meta_check)
+                print(f"[DEBUG] meta_check from config: {config_meta_check} -> enabled: {meta_check_enabled}")
+            else:
+                # Default: enable for BT codes if they have h_meta attribute
+                meta_check_enabled = code_type == "BT" and hasattr(code, 'h_meta')
+                print(f"[DEBUG] meta_check default for BT with h_meta: {meta_check_enabled}")
+            
             circuit = generate_full_circuit(
                 code=code,
                 rounds=rounds,
@@ -133,6 +144,7 @@ def run_QEC_serial_simulation(
                 p2=p,
                 p_spam=p,
                 seed=int(rng.integers(0, 2**32 - 1)),
+                meta_check=meta_check_enabled,
             )
             logging.info(
                 f"[SER] built circuit in {time.time() - t0:.2f}s (rounds={rounds}, p={p:.4g})"
@@ -408,6 +420,17 @@ def run_QEC_multiprocess_simulation(
     for rounds in rounds_list:
         for p in p_list:
             # Build circuit once and pass its text to workers
+            
+            # Enable meta_check for BT codes based on config or default behavior
+            config_meta_check = code_params.get('meta_check', None)
+            if config_meta_check is not None:
+                meta_check_enabled = bool(config_meta_check)
+                print(f"[DEBUG] meta_check from config: {config_meta_check} -> enabled: {meta_check_enabled}")
+            else:
+                # Default: enable for BT codes if they have h_meta attribute
+                meta_check_enabled = code_type == "BT" and hasattr(code, 'h_meta')
+                print(f"[DEBUG] meta_check default for BT with h_meta: {meta_check_enabled}")
+            
             circuit = generate_full_circuit(
                 code=code,
                 rounds=rounds,
@@ -415,6 +438,7 @@ def run_QEC_multiprocess_simulation(
                 p2=p,
                 p_spam=p,
                 seed=int(rng.integers(0, 2**32 - 1)),
+                meta_check=meta_check_enabled,
             )
             circuit_text = str(circuit)
 

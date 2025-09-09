@@ -116,10 +116,15 @@ def build_bt_code(
     est_osd_order: int = 0,
     est_iters: int = 200,
 ) -> css_code:
-    from bivariate_tricycle_codes import get_BT_Hx_Hz  # local import to avoid cycles
+    from bivariate_tricycle_codes import get_BT_Hx_Hz, get_BT_Hmeta  # local import to avoid cycles
 
     Hx, Hz = get_BT_Hx_Hz(a_poly, b_poly, c_poly, l, m)
     code = css_code(hx=Hx, hz=Hz, name=f"BT_{l}x{m}")
+    
+    # Add meta check matrix for single shot decoding
+    H_meta = get_BT_Hmeta(a_poly, b_poly, c_poly, l, m)
+    code.h_meta = H_meta
+    
     code.test()
     if estimate_distance:
         dx, dz = _estimate_distances(
@@ -258,6 +263,10 @@ def extract_code_params_from_config(config: dict) -> Tuple[str, dict]:
     
     if code_type == 'TT':
         code_params['n'] = config['n']
+    
+    # Include meta_check parameter if present in config
+    if 'meta_check' in config:
+        code_params['meta_check'] = config['meta_check']
         
     return code_type, code_params
 
