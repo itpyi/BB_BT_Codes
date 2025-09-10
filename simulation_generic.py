@@ -269,30 +269,27 @@ def _worker_run_generic(
     shared_errors: Optional[Any],
     code_type: Optional[str] = None,
     p_rate: Optional[float] = None,
+    use_bt_singleshot: bool = True,
 ) -> Tuple[int, int, float]:
     """Generic worker function for multiprocess simulation."""
     circuit = stim.Circuit(circuit_text)
     t0 = time.time()
-    # For multiprocess workers, BT two-stage decoder requires code reconstruction
     code_obj = None
     if code_type == "BT" and p_rate is not None:
-        try:
-            # Extract code parameters from worker metadata
-            code_params = {k.replace('code_', ''): v for k, v in meta.items() if k.startswith('code_')}
-            if 'a_poly' in code_params and 'b_poly' in code_params and 'c_poly' in code_params:
-                code_obj = build_code_generic(code_type, **code_params)
-                logging.info(f"[WRK] Reconstructed {code_type} code for two-stage decoder")
-        except Exception as e:
-            logging.warning(f"[WRK] Failed to reconstruct BT code: {e}, using standard decoder")
-    
+        code_params = {k.replace("code_", ""): v for k, v in meta.items() if k.startswith("code_")}
+        has_all = all(k in code_params for k in ("a_poly", "b_poly", "c_poly", "l", "m"))
+        if has_all:
+            code_obj = build_code_generic("BT", **code_params)
+            logging.info("[WRK] Reconstructed BT code for meta-scrub")
+
     decoder, obs_mat = build_decoder_from_circuit(
-        circuit, 
-        bp_iters=bp_iters, 
-        osd_order=osd_order, 
+        circuit,
+        bp_iters=bp_iters,
+        osd_order=osd_order,
         decompose_dem=decompose_dem,
         code=code_obj,
         p=p_rate,
-        use_bt_singleshot=True  # Always try BT decoder in workers if code available
+        use_bt_singleshot=use_bt_singleshot,
     )
     logging.info(f"[WRK] decoder built in {time.time() - t0:.2f}s")
     sampler = circuit.compile_detector_sampler()
@@ -416,11 +413,9 @@ def run_QEC_multiprocess_simulation(
         List of result points
     """
     # Set a stable start method
-    try:
-        if mp.get_start_method(allow_none=True) is None:
-            mp.set_start_method("spawn")
-    except RuntimeError:
-        pass
+    if mp.get_start_method(allow_none=True) is None:
+        # May raise if a context is already set; that's fine to surface.
+        mp.set_start_method("spawn")
 
     # Build code using generic dispatcher
     code = build_code_generic(code_type, **code_params)
@@ -513,6 +508,7 @@ def run_QEC_multiprocess_simulation(
                     "shared_errors": shared_errors,
                     "code_type": code_type,
                     "p_rate": p,
+                    "use_bt_singleshot": use_bt_singleshot,
                 }
                 for _ in range(w)
             ]

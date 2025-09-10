@@ -23,11 +23,7 @@ from ldpc.ckt_noise.dem_matrices import detector_error_model_to_check_matrices
 import time
 import logging
 from distance_estimator import get_min_logical_weight
-from bt_singleshot_decoder import (
-    build_bt_singleshot_decoder,
-    BTCode,
-    extract_syndrome_history_from_stim
-)
+from bt_singleshot_decoder import build_dem_decoder_with_meta_scrub
 
 
 @dataclass
@@ -277,108 +273,40 @@ def extract_code_params_from_config(config: dict) -> Tuple[str, dict]:
 
 
 def build_decoder_from_circuit(
-    circuit: stim.Circuit, 
-    *, 
-    bp_iters: int, 
-    osd_order: int, 
+    circuit: stim.Circuit,
+    *,
+    bp_iters: int,
+    osd_order: int,
     decompose_dem: Optional[bool] = None,
     code: Optional[Any] = None,
     p: Optional[float] = None,
-    use_bt_singleshot: bool = True
+    use_bt_singleshot: bool = True,
 ) -> Tuple[Any, np.ndarray]:
-    """Build decoder from Stim circuit with optional BT two-stage decoder integration.
-    
-    Args:
-        circuit: Stim circuit for simulation
-        bp_iters: BP decoder iterations
-        osd_order: OSD decoder order
-        decompose_dem: Whether to decompose detector error model
-        code: Code object (required for BT two-stage decoder)
-        p: Physical error rate (required for BT two-stage decoder)
-        use_bt_singleshot: Whether to use BT two-stage decoder for BT codes
-        
-    Returns:
-        Tuple of (decoder, observables_matrix) where decoder may be either
-        standard BpOsdDecoder or BT two-stage wrapper function
+    """Build a DEM-based decoder, optionally wrapped with a meta-parity scrubber.
+
+    - Always constructs a DEM → (H, priors, O) → BpOsdDecoder pipeline.
+    - If `use_bt_singleshot` and the code has `h_meta`, wraps the decoder with a
+      detector-space meta-parity scrubber before decoding.
     """
     t0 = time.time()
-    
-    # Check if we should use BT two-stage decoder
-    use_bt_decoder = (
-        use_bt_singleshot 
-        and code is not None 
-        and p is not None
-        and hasattr(code, 'h_meta') 
-        and code.h_meta is not None
-        and hasattr(code, 'hz')
-        and hasattr(code, 'hx')
-    )
-    
-    if use_bt_decoder:
-        logging.info("[DEC] Detected BT code with meta checks - but two-stage integration needs format fixes")
-        logging.info("[DEC] Falling back to standard decoder for now")
-    
-    # Standard decoder path
-    logging.info("[DEC] Using standard BP+OSD decoder")
-    
-    # Optional DEM decomposition toggle for speed debugging
+
+    # DEM construction
     if decompose_dem is None:
-        decompose = os.getenv("QEC_DEM_DECOMPOSE")
-        decompose_flag = bool(decompose and decompose not in ("0", "false", "False"))
+        env = os.getenv("QEC_DEM_DECOMPOSE")
+        decompose = bool(env and env not in ("0", "false", "False"))
     else:
-        decompose_flag = bool(decompose_dem)
-    if decompose_flag:
-        try:
-            dem = circuit.detector_error_model(
-                decompose_errors=True, approximate_disjoint_errors=True
-            )
-        except ValueError as e:
-            logging.warning(
-                "[DEC] DEM decomposition failed (%s). Falling back to non-decomposed DEM.",
-                str(e).splitlines()[0] if str(e) else "ValueError",
-            )
-            dem = circuit.detector_error_model(decompose_errors=False)
-    else:
-        dem = circuit.detector_error_model(decompose_errors=False)
-    t1 = time.time()
-    mats = detector_error_model_to_check_matrices(
-        dem, allow_undecomposed_hyperedges=True
+        decompose = bool(decompose_dem)
+    dem = (
+        circuit.detector_error_model(decompose_errors=True, approximate_disjoint_errors=True)
+        if decompose
+        else circuit.detector_error_model(decompose_errors=False)
     )
+    t1 = time.time()
+    mats = detector_error_model_to_check_matrices(dem, allow_undecomposed_hyperedges=True)
     t2 = time.time()
-    try:
-        H = mats.check_matrix
-        O = mats.observables_matrix
-        h_shape = tuple(getattr(H, "shape", ()))
-        o_shape = tuple(getattr(O, "shape", ()))
-        # Sparsity stats when available
-        nnz = getattr(H, "nnz", None)
-        row_deg_max = col_deg_max = avg_col_deg = None
-        try:
-            H_csr = H.tocsr()
-            row_deg = np.diff(H_csr.indptr)
-            row_deg_max = int(row_deg.max()) if row_deg.size else 0
-            # Column degrees via CSC (avoid explicit transpose data copy when large)
-            H_csc = H.tocsc()
-            col_deg = np.diff(H_csc.indptr)
-            col_deg_max = int(col_deg.max()) if col_deg.size else 0
-            avg_col_deg = float(col_deg.mean()) if col_deg.size else 0.0
-        except Exception:
-            pass
-        if nnz is not None and row_deg_max is not None and col_deg_max is not None:
-            logging.info(
-                "[DEC] matrices: H%s nnz=%s row_max=%s col_max=%s col_avg=%.2f, O%s",
-                h_shape,
-                nnz,
-                row_deg_max,
-                col_deg_max,
-                avg_col_deg if avg_col_deg is not None else 0.0,
-                o_shape,
-            )
-        else:
-            logging.info("[DEC] matrices: H%s, O%s", h_shape, o_shape)
-    except Exception:
-        pass
-    osd_method = "osd_e" if osd_order and osd_order > 0 else "osd0"
+
+    # Decoder construction
+    osd_method = "osd_e" if (osd_order and osd_order > 0) else "osd0"
     bposd = BpOsdDecoder(
         mats.check_matrix,
         error_channel=list(mats.priors),
@@ -390,135 +318,26 @@ def build_decoder_from_circuit(
         osd_order=osd_order,
     )
     t3 = time.time()
-    logging.info(
-        "[DEC] DEM build %.2fs | dem->mats %.2fs | BpOsd init %.2fs",
-        t1 - t0,
-        t2 - t1,
-        t3 - t2,
-    )
-    return bposd, mats.observables_matrix
+    logging.info("[DEC] DEM %.2fs | mats %.2fs | init %.2fs", t1 - t0, t2 - t1, t3 - t2)
 
+    # Optional meta-parity scrubber
+    want_scrub = bool(use_bt_singleshot and code is not None and getattr(code, "h_meta", None) is not None)
+    if not want_scrub:
+        return bposd, mats.observables_matrix
 
-def _build_bt_two_stage_decoder_wrapper(
-    circuit: stim.Circuit, 
-    code: Any, 
-    p: float, 
-    bp_iters: int, 
-    osd_order: int
-) -> Tuple[Any, np.ndarray]:
-    """Build BT two-stage decoder wrapper with fallback capability.
-    
-    Args:
-        circuit: Stim circuit for simulation
-        code: BT code with h_meta attribute
-        p: Physical error rate
-        bp_iters: BP iterations
-        osd_order: OSD order
-        
-    Returns:
-        Tuple of (bt_decoder_wrapper, observables_matrix)
-    """
-    t0 = time.time()
-    
-    try:
-        # Get observables matrix from DEM for compatibility
-        dem = circuit.detector_error_model(decompose_errors=False)
-        mats = detector_error_model_to_check_matrices(
-            dem, allow_undecomposed_hyperedges=True
-        )
-        obs_matrix = mats.observables_matrix
-        
-        # Build BT decoder parameters
-        pars = [bp_iters, osd_order]
-        
-        # Create BT two-stage decoder function
-        bt_decode_fn = build_bt_singleshot_decoder(code, p, pars)
-        
-        # Create wrapper that matches BpOsdDecoder interface
-        class BTDecoderWrapper:
-            """Wrapper to make BT two-stage decoder compatible with standard interface."""
-            
-            def __init__(self, bt_decoder_fn: callable, code_obj: Any, p_err: float, bp_iter: int, osd_ord: int):
-                self.bt_decoder_fn = bt_decoder_fn
-                self.code_obj = code_obj  
-                self.p_err = p_err
-                self.bp_iter = bp_iter
-                self.osd_ord = osd_ord
-                self._fallback_decoder = None
-                
-            def decode(self, detection_events: np.ndarray) -> np.ndarray:
-                """Decode detection events using BT two-stage approach.
-                
-                Args:
-                    detection_events: Detector measurements from Stim
-                    
-                Returns:
-                    Error correction vector
-                """
-                try:
-                    # For now, fall back to standard decoder due to complexity of matching 
-                    # BT two-stage decoder output format to Stim's expected correction format
-                    # TODO: Implement proper format conversion between BT decoder and Stim expectations
-                    logging.warning("[BT-DEC] Two-stage decoder format conversion not yet implemented, using fallback")
-                    return self._get_fallback_correction(detection_events)
-                    
-                except Exception as e:
-                    logging.warning(f"[BT-DEC] Two-stage decode failed: {e}, using fallback")
-                    return self._get_fallback_correction(detection_events)
-                    
-            def _get_fallback_correction(self, detection_events: np.ndarray) -> np.ndarray:
-                """Fallback to zero correction matching expected dimensions."""
-                # Return zeros with the expected dimension from observables matrix
-                # The observables matrix tells us the expected correction vector length
-                return np.zeros(len(detection_events), dtype=np.uint8)
-        
-        decoder_wrapper = BTDecoderWrapper(bt_decode_fn, code, p, bp_iters, osd_order)
-        
-        t1 = time.time()
-        logging.info(f"[BT-DEC] Two-stage decoder built in {t1-t0:.2f}s")
-        
-        return decoder_wrapper, obs_matrix
-        
-    except Exception as e:
-        logging.error(f"[BT-DEC] Failed to build two-stage decoder: {e}")
-        logging.info("[BT-DEC] Falling back to standard BP+OSD decoder")
-        
-        # Fallback to standard decoder
-        return _build_standard_decoder_from_circuit(
-            circuit, bp_iters=bp_iters, osd_order=osd_order
-        )
-
-
-def _build_standard_decoder_from_circuit(
-    circuit: stim.Circuit, *, bp_iters: int, osd_order: int
-) -> Tuple[BpOsdDecoder, np.ndarray]:
-    """Build standard BP+OSD decoder from circuit (fallback function)."""
-    t0 = time.time()
-    
-    dem = circuit.detector_error_model(decompose_errors=False)
-    t1 = time.time()
-    mats = detector_error_model_to_check_matrices(
-        dem, allow_undecomposed_hyperedges=True
-    )
-    t2 = time.time()
-    
-    osd_method = "osd_e" if osd_order and osd_order > 0 else "osd0"
-    bposd = BpOsdDecoder(
-        mats.check_matrix,
-        error_channel=list(mats.priors),
-        max_iter=bp_iters,
-        bp_method="ms",
-        ms_scaling_factor=0.625,
-        schedule="parallel",
-        osd_method=osd_method,
+    p_spam = float(p) if p is not None else 0.01
+    wrapped = build_dem_decoder_with_meta_scrub(
+        base_decoder=bposd,
+        dem=dem,
+        code=code,  # type: ignore[arg-type]
+        p_spam=p_spam,
+        bp_iters=bp_iters,
         osd_order=osd_order,
     )
-    t3 = time.time()
-    logging.info(
-        "[FALLBACK] Standard decoder build: DEM %.2fs | mats %.2fs | BpOsd %.2fs",
-        t1 - t0, t2 - t1, t3 - t2
-    )
-    return bposd, mats.observables_matrix
+    logging.info("[DEC] Using DEM decoder with meta-parity scrubbing (BT)")
+    return wrapped, mats.observables_matrix
+
+
 
 
 class _LockLike(Protocol):
