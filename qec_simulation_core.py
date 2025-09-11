@@ -26,94 +26,6 @@ from distance_estimator import get_min_logical_weight
 from bt_singleshot_decoder import build_dem_decoder_with_meta_scrub
 
 
-class CompositeCSSDecoder:
-    """CSS decoder that splits X/Z sectors and decodes them independently.
-    
-    For CSS codes, X errors only trigger Z stabilizers and Z errors only trigger X stabilizers.
-    This decoder splits the detector error model into separate X and Z sectors and builds
-    independent decoders for each sector, then combines their results.
-    """
-    
-    def __init__(
-        self,
-        x_decoder: BpOsdDecoder,
-        z_decoder: BpOsdDecoder,
-        x_observables: np.ndarray,
-        z_observables: np.ndarray,
-        x_detector_indices: np.ndarray,
-        z_detector_indices: np.ndarray,
-        unified_error_space_size: int,
-    ):
-        """Initialize composite CSS decoder.
-        
-        Args:
-            x_decoder: Decoder for X sector (decodes X errors from Z stabilizer violations)
-            z_decoder: Decoder for Z sector (decodes Z errors from X stabilizer violations)
-            x_observables: Observable matrix for X sector
-            z_observables: Observable matrix for Z sector
-            x_detector_indices: Indices of X-sector detectors in full syndrome
-            z_detector_indices: Indices of Z-sector detectors in full syndrome
-            unified_error_space_size: Size of the unified error space (for correction vectors)
-        """
-        self.x_decoder = x_decoder
-        self.z_decoder = z_decoder
-        self.x_observables = x_observables
-        self.z_observables = z_observables
-        self.x_detector_indices = x_detector_indices
-        self.z_detector_indices = z_detector_indices
-        self.unified_error_space_size = unified_error_space_size
-    
-    def decode(self, syndrome: np.ndarray) -> np.ndarray:
-        """Decode syndrome by splitting into X/Z sectors.
-        
-        Args:
-            syndrome: Full syndrome vector
-            
-        Returns:
-            Combined correction vector matching the original unified DEM structure
-        """
-        # Extract sector-specific syndromes
-        x_syndrome = syndrome[self.x_detector_indices] if len(self.x_detector_indices) > 0 else np.array([])
-        z_syndrome = syndrome[self.z_detector_indices] if len(self.z_detector_indices) > 0 else np.array([])
-        
-        # Initialize correction vector with proper size
-        combined_correction = np.zeros(self.unified_error_space_size, dtype=int)
-        
-        # Decode X sector (responds to Z stabilizer violations)
-        if len(x_syndrome) > 0:
-            x_correction = self.x_decoder.decode(x_syndrome)
-            # X decoder correction should already be in the unified error space
-            # XOR with combined correction (CSS property: X and Z errors are independent)
-            if len(x_correction) == self.unified_error_space_size:
-                combined_correction ^= x_correction
-            else:
-                # This should not happen with proper sector splitting, but handle gracefully
-                logging.warning(f"X correction size mismatch: expected {self.unified_error_space_size}, got {len(x_correction)}")
-                min_len = min(len(x_correction), self.unified_error_space_size)
-                combined_correction[:min_len] ^= x_correction[:min_len]
-        
-        # Decode Z sector (responds to X stabilizer violations)  
-        if len(z_syndrome) > 0:
-            z_correction = self.z_decoder.decode(z_syndrome)
-            # Z decoder correction should already be in the unified error space
-            # XOR with combined correction (CSS property: X and Z errors are independent)
-            if len(z_correction) == self.unified_error_space_size:
-                combined_correction ^= z_correction
-            else:
-                # This should not happen with proper sector splitting, but handle gracefully
-                logging.warning(f"Z correction size mismatch: expected {self.unified_error_space_size}, got {len(z_correction)}")
-                min_len = min(len(z_correction), self.unified_error_space_size)
-                combined_correction[:min_len] ^= z_correction[:min_len]
-        
-        return combined_correction
-    
-    def __getattr__(self, name):
-        """Delegate unknown attributes to the X decoder for compatibility."""
-        # For the 'n' attribute (code length), return the unified error space size
-        if name == 'n':
-            return self.unified_error_space_size
-        # For other attributes, delegate to X decoder
-        return getattr(self.x_decoder, name)
 
 
 @dataclass
@@ -362,223 +274,8 @@ def extract_code_params_from_config(config: dict) -> Tuple[str, dict]:
     return code_type, code_params
 
 
-def _separate_css_sectors(
-    dem: stim.DetectorErrorModel,
-    code: Optional[Any] = None,
-) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
-    """Separate detector error model into X and Z sectors for CSS codes.
-    
-    For CSS codes:
-    - X errors only affect Z stabilizers → X-sector decoder handles X errors using Z-detector syndromes
-    - Z errors only affect X stabilizers → Z-sector decoder handles Z errors using X-detector syndromes
-    
-    This requires analyzing the DEM structure to identify which error mechanisms
-    affect which detectors, rather than using position-based heuristics.
-    
-    Args:
-        dem: Stim detector error model
-        code: Optional CSS code object for additional structure info
-        
-    Returns:
-        Tuple of (x_error_indices, z_error_indices, x_detector_indices, z_detector_indices) 
-        or None if separation fails
-    """
-    try:
-        # Convert DEM to matrices to analyze structure
-        from ldpc.ckt_noise.dem_matrices import detector_error_model_to_check_matrices
-        mats = detector_error_model_to_check_matrices(dem, allow_undecomposed_hyperedges=True)
-        
-        check_matrix = mats.check_matrix  # Shape: (num_detectors, num_error_mechanisms)
-        num_detectors, _num_errors = check_matrix.shape
-        
-        # Require a CSS code with known mx, mz
-        if code is None or getattr(code, 'hx', None) is None or getattr(code, 'hz', None) is None:
-            logging.warning("CSS sector separation requested without valid CSS code; falling back")
-            return None
-        mx = int(getattr(code, 'hx').shape[0])
-        mz = int(getattr(code, 'hz').shape[0])
-        if mx <= 0 or mz <= 0:
-            logging.warning("CSS sector separation requires mx>0 and mz>0; falling back")
-            return None
-        
-        # Infer number of rounds from detector count, assuming circuits built by generate_full_circuit.
-        # Formula: D = (R-1)*mx + (R+1)*mz = R*(mx+mz) + (mz - mx)
-        D = int(num_detectors)
-        denom = mx + mz
-        numer = D - (mz - mx)
-        if denom <= 0 or numer < denom:
-            logging.warning("CSS sector separation unable to infer rounds; falling back")
-            return None
-        if numer % denom != 0:
-            logging.warning("CSS sector separation: detector layout not matching expected pattern; falling back")
-            return None
-        R = numer // denom
-        if R < 1:
-            logging.warning("CSS sector separation: invalid inferred rounds; falling back")
-            return None
-        
-        # Compute detector index ranges based on construction order in generate_full_circuit:
-        # [Z_init (mz)] + (R-1) * [Z_block (mz), X_block (mx)] + [Z_final (mz)]
-        z_indices = []
-        x_indices = []
-        # Initial Z
-        start = 0
-        z_indices.extend(range(start, start + mz))
-        # Repeated blocks
-        for t in range(R - 1):
-            base = mz + t * (mz + mx)
-            z_indices.extend(range(base, base + mz))
-            x_indices.extend(range(base + mz, base + mz + mx))
-        # Final Z detectors
-        final_base = mz + (R - 1) * (mz + mx)
-        z_indices.extend(range(final_base, final_base + mz))
-
-        # Important: X errors flip Z stabilizers → X-sector uses Z detectors.
-        #            Z errors flip X stabilizers → Z-sector uses X detectors.
-        x_detector_indices = np.array(z_indices, dtype=int)
-        z_detector_indices = np.array(x_indices, dtype=int)
-        # Column split not used; return placeholders to satisfy signature
-        x_error_indices = np.array([], dtype=int)
-        z_error_indices = np.array([], dtype=int)
-        
-        logging.info(f"[CSS] Sector separation: R={R}, mx={mx}, mz={mz}, X dets={len(x_detector_indices)}, Z dets={len(z_detector_indices)}")
-        return x_error_indices, z_error_indices, x_detector_indices, z_detector_indices
-        
-        # TODO: Implement proper CSS sector separation by:
-        # 1. Analyzing the DEM instruction stream to identify X vs Z error types
-        # 2. Tracking which detectors are affected by each error type
-        # 3. Building proper sector-specific check matrices
-        # 4. This requires deep integration with Stim's DEM structure
-        
-    except Exception as e:
-        logging.warning(f"CSS sector separation failed: {e}")
-        return None
 
 
-def _build_css_split_decoder(
-    circuit: stim.Circuit,
-    *,
-    bp_iters: int,
-    osd_order: int,
-    decompose_dem: Optional[bool] = None,
-    code: Optional[Any] = None,
-    p: Optional[float] = None,
-) -> Optional[Tuple[CompositeCSSDecoder, np.ndarray]]:
-    """Build CSS decoder with X/Z sector splitting.
-    
-    Args:
-        circuit: Stim circuit
-        bp_iters: BP iteration count
-        osd_order: OSD order
-        decompose_dem: Whether to decompose DEM
-        code: CSS code object
-        p: Error probability
-        
-    Returns:
-        Tuple of (composite_decoder, observables_matrix) or None if splitting fails
-    """
-    try:
-        # Build detector error model
-        if decompose_dem is None:
-            env = os.getenv("QEC_DEM_DECOMPOSE")
-            decompose = bool(env and env not in ("0", "false", "False"))
-        else:
-            decompose = bool(decompose_dem)
-            
-        dem = (
-            circuit.detector_error_model(decompose_errors=True, approximate_disjoint_errors=True)
-            if decompose
-            else circuit.detector_error_model(decompose_errors=False)
-        )
-        
-        # Separate into X/Z sectors
-        sector_split = _separate_css_sectors(dem, code)
-        if sector_split is None:
-            return None
-        x_error_indices, z_error_indices, x_detector_indices, z_detector_indices = sector_split
-        
-        # Convert full DEM to matrices
-        mats = detector_error_model_to_check_matrices(dem, allow_undecomposed_hyperedges=True)
-        full_check_matrix = mats.check_matrix
-        full_priors = mats.priors
-        full_observables = mats.observables_matrix
-        
-        # Extract sector-specific matrices
-        if len(x_detector_indices) > 0:
-            x_check_matrix = full_check_matrix[x_detector_indices, :]
-            x_priors = list(full_priors)  # Use same priors for now
-        else:
-            x_check_matrix = np.empty((0, full_check_matrix.shape[1]))
-            x_priors = []
-            
-        if len(z_detector_indices) > 0:
-            z_check_matrix = full_check_matrix[z_detector_indices, :]
-            z_priors = list(full_priors)  # Use same priors for now
-        else:
-            z_check_matrix = np.empty((0, full_check_matrix.shape[1]))
-            z_priors = []
-        
-        # Build sector decoders
-        osd_method = "osd_e" if (osd_order and osd_order > 0) else "osd0"
-        
-        x_decoder = None
-        z_decoder = None
-        
-        if x_check_matrix.shape[0] > 0:
-            x_decoder = BpOsdDecoder(
-                x_check_matrix,
-                error_channel=x_priors,
-                max_iter=bp_iters,
-                bp_method="ms",
-                ms_scaling_factor=0.625,
-                schedule="parallel",
-                osd_method=osd_method,
-                osd_order=osd_order,
-            )
-        
-        if z_check_matrix.shape[0] > 0:
-            z_decoder = BpOsdDecoder(
-                z_check_matrix,
-                error_channel=z_priors,
-                max_iter=bp_iters,
-                bp_method="ms",
-                ms_scaling_factor=0.625,
-                schedule="parallel",
-                osd_method=osd_method,
-                osd_order=osd_order,
-            )
-        
-        if x_decoder is None:
-            return None
-            
-        # For CSS codes, the observables matrix represents logical operator measurements
-        # in the unified error space. We don't need to split the observables since
-        # the correction vector will be in the unified space.
-        # However, we can still provide sector-specific views if needed for analysis.
-        x_observables = full_observables  # Use full observables for X sector
-        z_observables = full_observables  # Use full observables for Z sector
-        
-        # The unified error space size is the number of columns in the full check matrix
-        unified_error_space_size = full_check_matrix.shape[1]
-        
-        # Create composite decoder
-        composite_decoder = CompositeCSSDecoder(
-            x_decoder=x_decoder,
-            z_decoder=z_decoder,
-            x_observables=x_observables,
-            z_observables=z_observables,
-            x_detector_indices=x_detector_indices,
-            z_detector_indices=z_detector_indices,
-            unified_error_space_size=unified_error_space_size,
-        )
-        
-        logging.info(f"[CSS] Built composite decoder: X-sector {len(x_detector_indices)} detectors, Z-sector {len(z_detector_indices)} detectors, unified error space size {unified_error_space_size}")
-        
-        return composite_decoder, full_observables
-        
-    except Exception as e:
-        logging.warning(f"CSS split decoder construction failed: {e}")
-        return None
 
 
 def build_decoder_from_circuit(
@@ -590,16 +287,12 @@ def build_decoder_from_circuit(
     code: Optional[Any] = None,
     p: Optional[float] = None,
     use_bt_singleshot: bool = True,
-    use_css_splitting: bool = False,
 ) -> Tuple[Any, np.ndarray]:
-    """Build a DEM-based decoder with optional CSS splitting and meta-parity scrubbing.
+    """Build a DEM-based decoder with meta-parity scrubbing.
 
     - Constructs a DEM → (H, priors, O) → BpOsdDecoder pipeline.
-    - If `use_css_splitting` is True and the code is a CSS code, attempts to split
-      the decoder into separate X and Z sectors for better performance.
     - If `use_bt_singleshot` and the code has `h_meta`, wraps the decoder with a
       detector-space meta-parity scrubber before decoding.
-    - Falls back to unified decoder if CSS splitting fails or is disabled.
     
     Args:
         circuit: Stim circuit to analyze
@@ -609,50 +302,14 @@ def build_decoder_from_circuit(
         code: Optional CSS code object for structure information
         p: Error probability for meta-parity scrubbing
         use_bt_singleshot: Whether to use BT single-shot meta scrubbing
-        use_css_splitting: Whether to attempt X/Z sector splitting for CSS codes
         
     Returns:
         Tuple of (decoder, observables_matrix)
     """
     t0 = time.time()
 
-    # Try CSS splitting if enabled and we have a CSS code
-    if use_css_splitting and code is not None:
-        
-        # Check if this looks like a CSS code (has hx and hz matrices)
-        hx = getattr(code, 'hx', None)
-        hz = getattr(code, 'hz', None)
-        
-        if hx is not None and hz is not None:
-            css_result = _build_css_split_decoder(
-                circuit,
-                bp_iters=bp_iters,
-                osd_order=osd_order,
-                decompose_dem=decompose_dem,
-                code=code,
-                p=p,
-            )
-            
-            # css_result will be None due to disabled implementation
-            if css_result is not None:
-                css_decoder, css_observables = css_result
-                
-                # Apply BT single-shot wrapping if requested and applicable
-                want_scrub = bool(use_bt_singleshot and getattr(code, "h_meta", None) is not None)
-                if want_scrub:
-                    logging.info("[CSS] CSS splitting successful, but BT single-shot not yet supported for composite decoders")
-                    # For now, fall back to unified decoder if single-shot is requested
-                    # TODO: Implement single-shot for composite decoders
-                else:
-                    t1 = time.time()
-                    logging.info(f"[CSS] CSS split decoder built successfully in {t1 - t0:.2f}s")
-                    return css_decoder, css_observables
-
-    # Fallback to unified DEM-based decoder
-    if use_css_splitting:
-        logging.info("[DEC] Using unified decoder (CSS splitting disabled or not forced)")
-    else:
-        logging.info("[DEC] Using unified decoder (CSS splitting disabled or failed)")
+    # Build unified DEM-based decoder
+    logging.info("[DEC] Using unified decoder")
 
     # DEM construction
     if decompose_dem is None:

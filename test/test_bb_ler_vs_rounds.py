@@ -86,7 +86,6 @@ def run_bb_rounds_sweep(
     bp_iters: int,
     osd_order: int,
     decompose_dem: Optional[bool] = None,
-    use_css_splitting: bool = False,
     resume_csv: Optional[str] = None,
 ) -> List[Point]:
     code = build_bb_code(a_poly, b_poly, l, m, estimate_distance=False)
@@ -123,7 +122,6 @@ def run_bb_rounds_sweep(
                 code=code,
                 p=float(p),
                 use_bt_singleshot=False,  # BB codes don't support single-shot
-                use_css_splitting=use_css_splitting,
             )
 
             # Sample and decode with early stopping
@@ -206,11 +204,7 @@ def main() -> None:
     ap.add_argument("--csv", type=str, default=None, help="Optional resume-style CSV output path")
     ap.add_argument("--plot-per-round", type=str, default=None, help="Path to save per-round plot PNG")
     ap.add_argument("--dem-decompose", action="store_true", help="Decompose DEM hyperedges for decoder")
-    ap.add_argument("--force-css", action="store_true", help="Force-enable CSS splitting (unsupported; may give incorrect results)")
     args = ap.parse_args()
-
-    if args.force_css:
-        os.environ["QEC_FORCE_CSS_SPLITTING"] = "1"
 
     seed = None if args.seed is None else int(args.seed)
     points = run_bb_rounds_sweep(
@@ -226,7 +220,6 @@ def main() -> None:
         bp_iters=args.bp_iters,
         osd_order=args.osd_order,
         decompose_dem=True if args.dem_decompose else None,
-        use_css_splitting=True,
         resume_csv=args.csv,
     )
 
