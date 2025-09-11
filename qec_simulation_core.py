@@ -73,6 +73,8 @@ def _estimate_distances(
         return -1, -1
 
 
+
+
 def build_bb_code(
     a_poly: list,
     b_poly: list,
@@ -97,11 +99,6 @@ def build_bb_code(
         # Attach as optional metadata on the code object
         setattr(code, "estimated_distance_x", int(dx))
         setattr(code, "estimated_distance_z", int(dz))
-        try:
-            candidates = [d for d in (dx, dz) if isinstance(d, (int, float)) and d > 0]
-            code.D = int(min(candidates)) if candidates else -1
-        except Exception:
-            setattr(code, "D", -1)
         logging.info("[DIST] BB_%dx%d estimated distances: dx=%s, dz=%s", l, m, dx, dz)
     return code
 
@@ -135,11 +132,6 @@ def build_bt_code(
         )
         setattr(code, "estimated_distance_x", int(dx))
         setattr(code, "estimated_distance_z", int(dz))
-        try:
-            candidates = [d for d in (dx, dz) if isinstance(d, (int, float)) and d > 0]
-            code.D = int(min(candidates)) if candidates else -1
-        except Exception:
-            setattr(code, "D", -1)
         logging.info("[DIST] BT_%dx%d estimated distances: dx=%s, dz=%s", l, m, dx, dz)
     return code
 
@@ -169,11 +161,6 @@ def build_tt_code(
         )
         setattr(code, "estimated_distance_x", int(dx))
         setattr(code, "estimated_distance_z", int(dz))
-        try:
-            candidates = [d for d in (dx, dz) if isinstance(d, (int, float)) and d > 0]
-            code.D = int(min(candidates)) if candidates else -1
-        except Exception:
-            setattr(code, "D", -1)
         logging.info("[DIST] TT_%dx%dx%d estimated distances: dx=%s, dz=%s", l, m, n, dx, dz)
     return code
 

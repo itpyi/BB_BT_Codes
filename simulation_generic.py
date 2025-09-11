@@ -160,7 +160,6 @@ def run_QEC_serial_simulation(
                 "code_type": code_type,
                 "code_k": code.K,
                 "code_n": code.N,
-                "code_D": int(getattr(code, "D", -1)),
                 "p": float(p),
                 "rounds": int(rounds),
                 **{f"code_{k}": v for k, v in code_params.items()},  # Add all code params
@@ -450,7 +449,6 @@ def run_QEC_multiprocess_simulation(
                 "code_type": code_type,
                 "code_k": code.K,
                 "code_n": code.N,
-                "code_D": int(getattr(code, "D", -1)),
                 "p": float(p),
                 "rounds": int(rounds),
                 **{f"code_{k}": v for k, v in code_params.items()},  # Add all code params
@@ -729,7 +727,6 @@ def main() -> None:
                 "code_type": code_type,
                 "code_k": int(code_meta.K),
                 "code_n": int(code_meta.N),
-                "code_D": int(getattr(code_meta, "D", -1)),
                 **{f"code_{k}": v for k, v in code_params.items()},
             },
         )
