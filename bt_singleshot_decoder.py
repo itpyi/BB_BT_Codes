@@ -81,12 +81,28 @@ class MetaParityScrubber:
     decoder (Stage 2).
     """
 
-    def __init__(self, h_meta: Any, mx: int, mz: int, rounds: int, *, p_spam: float = 0.01, bp_iters: int = 20, osd_order: int = 0) -> None:
+    def __init__(
+        self,
+        h_meta: Any,
+        mx: int,
+        mz: int,
+        rounds: int,
+        *,
+        p_spam: float = 0.01,
+        bp_iters: int = 20,
+        osd_order: int = 0,
+        s_max_frac: Optional[float] = 0.15,
+        round_mode: str = "all",
+    ) -> None:
         self.h_meta = csr_matrix(h_meta)
         self.mx = int(mx)
         self.mz = int(mz)
         self.rounds = int(rounds)
-        p_meas = max(1e-6, min(0.499, float(p_spam)))
+        # Conservative prior for measurement flips in meta scrubber.
+        # Cap at 2% by default to avoid over-scrubbing when data/gate faults dominate.
+        p_meas = max(1e-6, min(0.02, float(p_spam)))
+        self._s_max_frac = float(s_max_frac) if (s_max_frac is not None) else None
+        self._round_mode = str(round_mode).lower() if round_mode else "all"
         # Use BP+LSD for stage-1 (meta Z) decoding. Reuse osd_order as lsd_order.
         self._meta_dec = BpLsdDecoder(
             self.h_meta,
@@ -105,11 +121,25 @@ class MetaParityScrubber:
         if (stop - start) != self.mz:
             return
         y = dets[start:stop]
+        flips = self._decode_delta(y)
+        if flips is None or not np.any(flips):
+            return
+        dets[start:stop] = np.logical_xor(dets[start:stop], flips.astype(bool))
+
+    def _decode_delta(self, y: np.ndarray) -> np.ndarray:
+        """Return a length-mz bit vector of flips to enforce H_meta @ (y ⊕ flips) = 0.
+
+        Subclasses may override to inject custom behavior for testing.
+        """
         s_vec = np.asarray((self.h_meta @ y) % 2, dtype=np.uint8).ravel()
         if not np.any(s_vec):
-            return
+            return np.zeros(self.mz, dtype=np.uint8)
+        # Guard: skip scrubbing if meta-syndrome weight is implausibly large.
+        if self._s_max_frac is not None:
+            if (np.count_nonzero(s_vec) / max(1, s_vec.size)) > self._s_max_frac:
+                return np.zeros(self.mz, dtype=np.uint8)
         flips = np.asarray(self._meta_dec.decode(s_vec), dtype=np.uint8).ravel()[: self.mz]
-        dets[start:stop] = np.logical_xor(dets[start:stop], flips.astype(bool))
+        return flips
 
     def scrub(self, dets: np.ndarray, total_detectors: Optional[int] = None) -> np.ndarray:
         """Return a corrected copy of the detector vector."""
@@ -119,16 +149,51 @@ class MetaParityScrubber:
         if layout is None:
             return dets.copy()
         out = dets.copy()
-        # Round 1 Z-detectors
-        before = out.copy()
-        self._scrub_one_block(out, layout.z_round1)
-        # Propagate any flips from round-1 Z to final Z-vs-data detectors when R=1
-        if self.rounds == 1:
-            delta = np.logical_xor(before[layout.z_round1], out[layout.z_round1])
-            if np.any(delta):
-                out[layout.final_z_vs_data] = np.logical_xor(out[layout.final_z_vs_data], delta)
-        for blk in layout.z_diff_blocks:
-            self._scrub_one_block(out, blk)
+        # Track cumulative changes that affect the final Z-vs-data detectors.
+        # Any net change to the last round's Z outcomes must be mirrored into
+        # the final Z-vs-data detector block to maintain internal consistency.
+        cumulative_zR_delta: Optional[np.ndarray] = None
+
+        # Reconstruct explicit per-round Z outcomes y_t from z1 and z-diff blocks.
+        z1 = out[layout.z_round1].copy()
+        y_rounds: list[np.ndarray] = [z1]
+        # Capture original last-round Z for later delta update
+        if len(layout.z_diff_blocks) == 0:
+            yR_orig = z1.copy()
+        else:
+            acc = z1.copy()
+            for blk in layout.z_diff_blocks:
+                d = out[blk]
+                acc = np.logical_xor(acc, d)
+                y_rounds.append(acc.copy())
+            yR_orig = acc.copy()
+
+        # Scrub each per-round Z outcome using H_meta
+        y_rounds_scrubbed: list[np.ndarray] = []
+        for idx, y in enumerate(y_rounds):
+            if self._round_mode == "last" and idx != (len(y_rounds) - 1):
+                y_rounds_scrubbed.append(y.copy())
+                continue
+            flips = self._decode_delta(y.astype(np.uint8))
+            if flips is None or not np.any(flips):
+                y_rounds_scrubbed.append(y.copy())
+            else:
+                y_rounds_scrubbed.append(np.logical_xor(y, flips.astype(bool)))
+
+        # Write back: z1 block
+        out[layout.z_round1] = y_rounds_scrubbed[0]
+
+        # Update z-diff blocks from consecutive y's
+        if len(layout.z_diff_blocks) > 0:
+            for idx, blk in enumerate(layout.z_diff_blocks, start=1):
+                d_new = np.logical_xor(y_rounds_scrubbed[idx], y_rounds_scrubbed[idx - 1])
+                out[blk] = d_new
+
+        # Mirror net change in last-round Z into final Z-vs-data
+        yR_new = y_rounds_scrubbed[-1]
+        delta_R = np.logical_xor(yR_orig, yR_new)
+        if np.any(delta_R):
+            out[layout.final_z_vs_data] = np.logical_xor(out[layout.final_z_vs_data], delta_R)
         return out
 
 

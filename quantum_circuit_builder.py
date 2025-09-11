@@ -6,7 +6,7 @@ Entry point:
 """
 
 import numpy as np
-from direct_cnot_scheduling import schedule_syndrome_cnots_only
+from cnot_scheduling import generate_edge_colored_syndrome_circuit
 import stim
 from typing import Any, Protocol, List
 from scipy.sparse import csr_matrix
@@ -18,46 +18,39 @@ from scipy.sparse import csr_matrix
 
 
 
-def generate_direct_syndrome_circuit(
+def generate_edge_colored_syndrome_layer(
     code_hx: Any, 
     code_hz: Any,
     x_checks: List[int],
     z_checks: List[int], 
-    p2: float
+    p1: float,
+    p2: float,
+    seed: int
 ) -> stim.Circuit:
-    """Return Stim circuit for syndrome extraction using direct parallel scheduling.
+    """Return Stim circuit for syndrome extraction using edge-coloring scheduling.
     
     Args:
         code_hx: X stabilizer parity check matrix
         code_hz: Z stabilizer parity check matrix  
         x_checks: X check qubit indices
         z_checks: Z check qubit indices
+        p1: Single-qubit depolarizing error rate
         p2: Two-qubit depolarizing error rate
+        seed: Random seed for edge-coloring shuffling
     """
-    # Convert matrices to stabilizer lists
-    hx_csr = csr_matrix(code_hx)
-    hz_csr = csr_matrix(code_hz)
-    
-    x_stabilizers = []
-    for i in range(hx_csr.shape[0]):
-        stabilizer = hx_csr.getrow(i).indices.tolist()
-        if stabilizer:  # Only add non-empty stabilizers
-            x_stabilizers.append(stabilizer)
-    
-    z_stabilizers = []
-    for i in range(hz_csr.shape[0]):
-        stabilizer = hz_csr.getrow(i).indices.tolist()
-        if stabilizer:  # Only add non-empty stabilizers
-            z_stabilizers.append(stabilizer)
-    
-    # Create circuit using direct scheduling
     c = stim.Circuit()
-    c.append("TICK")
     
-    # Use the direct scheduling approach (CNOTs only, no measurements)
-    schedule_syndrome_cnots_only(
-        c, z_stabilizers, z_checks, x_stabilizers, x_checks, p2
+    # Generate Z stabilizer syndrome circuit (stab_type=0)
+    z_circuit = generate_edge_colored_syndrome_circuit(
+        code_hz, z_checks, stab_type=0, p1=p1, p2=p2, seed=seed
     )
+    c += z_circuit
+    
+    # Generate X stabilizer syndrome circuit (stab_type=1)
+    x_circuit = generate_edge_colored_syndrome_circuit(
+        code_hx, x_checks, stab_type=1, p1=p1, p2=p2, seed=seed
+    )
+    c += x_circuit
     
     return c
 
@@ -100,8 +93,8 @@ def generate_full_circuit(
 
     c = stim.Circuit()
 
-    # Build syndrome extraction layer using direct parallel scheduling.
-    synd_circuit = generate_direct_syndrome_circuit(code.hx, code.hz, x_checks, z_checks, p2)
+    # Build syndrome extraction layer using edge-coloring scheduling.
+    synd_circuit = generate_edge_colored_syndrome_layer(code.hx, code.hz, x_checks, z_checks, p1, p2, seed)
 
     # Round 1: initialize all qubits (data qubits to |0>, ancillas reset); build syndrome layer; measure all checks once (no SPAM).
     c.append("R", data_qubits + x_checks + z_checks)
