@@ -47,6 +47,7 @@ AGENTS.md
 *.ipynb
 
 *.stim
+*.npy
 
 test/BB_code_benchmark
 deprecated_code/*
