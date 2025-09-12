@@ -94,6 +94,7 @@ def run_QEC_serial_simulation(
     resume_csv: Optional[str] = None,
     resume_every: int = 200,
     decompose_dem: Optional[bool] = None,
+    use_bt_singleshot: bool = True,
 ) -> List[ResultPoint]:
     """Run generic QEC simulation in serial mode.
     
@@ -126,6 +127,8 @@ def run_QEC_serial_simulation(
         for p in p_list:
             # Generate circuit (same API for all code types)
             t0 = time.time()
+            
+            
             circuit = generate_full_circuit(
                 code=code,
                 rounds=rounds,
@@ -140,7 +143,13 @@ def run_QEC_serial_simulation(
 
             t1 = time.time()
             decoder, obs_mat = build_decoder_from_circuit(
-                circuit, bp_iters=bp_iters, osd_order=osd_order, decompose_dem=decompose_dem
+                circuit, 
+                bp_iters=bp_iters, 
+                osd_order=osd_order, 
+                decompose_dem=decompose_dem,
+                code=code,
+                p=p,
+                use_bt_singleshot=use_bt_singleshot
             )
             logging.info(
                 f"[SER] built decoder in {time.time() - t1:.2f}s (rounds={rounds}, p={p:.4g})"
@@ -151,7 +160,6 @@ def run_QEC_serial_simulation(
                 "code_type": code_type,
                 "code_k": code.K,
                 "code_n": code.N,
-                "code_D": int(getattr(code, "D", -1)),
                 "p": float(p),
                 "rounds": int(rounds),
                 **{f"code_{k}": v for k, v in code_params.items()},  # Add all code params
@@ -258,12 +266,29 @@ def _worker_run_generic(
     lock: Optional[Any],
     shared_shots: Optional[Any],
     shared_errors: Optional[Any],
+    code_type: Optional[str] = None,
+    p_rate: Optional[float] = None,
+    use_bt_singleshot: bool = True,
 ) -> Tuple[int, int, float]:
     """Generic worker function for multiprocess simulation."""
     circuit = stim.Circuit(circuit_text)
     t0 = time.time()
+    code_obj = None
+    if code_type == "BT" and p_rate is not None:
+        code_params = {k.replace("code_", ""): v for k, v in meta.items() if k.startswith("code_")}
+        has_all = all(k in code_params for k in ("a_poly", "b_poly", "c_poly", "l", "m"))
+        if has_all:
+            code_obj = build_code_generic("BT", **code_params)
+            logging.info("[WRK] Reconstructed BT code for meta-scrub")
+
     decoder, obs_mat = build_decoder_from_circuit(
-        circuit, bp_iters=bp_iters, osd_order=osd_order, decompose_dem=decompose_dem
+        circuit,
+        bp_iters=bp_iters,
+        osd_order=osd_order,
+        decompose_dem=decompose_dem,
+        code=code_obj,
+        p=p_rate,
+        use_bt_singleshot=use_bt_singleshot,
     )
     logging.info(f"[WRK] decoder built in {time.time() - t0:.2f}s")
     sampler = circuit.compile_detector_sampler()
@@ -374,6 +399,7 @@ def run_QEC_multiprocess_simulation(
     resume_csv: Optional[str] = None,
     resume_every: int = 50,
     decompose_dem: Optional[bool] = None,
+    use_bt_singleshot: bool = True,
 ) -> List[ResultPoint]:
     """Run generic QEC simulation in multiprocess mode.
     
@@ -386,11 +412,9 @@ def run_QEC_multiprocess_simulation(
         List of result points
     """
     # Set a stable start method
-    try:
-        if mp.get_start_method(allow_none=True) is None:
-            mp.set_start_method("spawn")
-    except RuntimeError:
-        pass
+    if mp.get_start_method(allow_none=True) is None:
+        # May raise if a context is already set; that's fine to surface.
+        mp.set_start_method("spawn")
 
     # Build code using generic dispatcher
     code = build_code_generic(code_type, **code_params)
@@ -408,6 +432,8 @@ def run_QEC_multiprocess_simulation(
     for rounds in rounds_list:
         for p in p_list:
             # Build circuit once and pass its text to workers
+            
+            
             circuit = generate_full_circuit(
                 code=code,
                 rounds=rounds,
@@ -423,7 +449,6 @@ def run_QEC_multiprocess_simulation(
                 "code_type": code_type,
                 "code_k": code.K,
                 "code_n": code.N,
-                "code_D": int(getattr(code, "D", -1)),
                 "p": float(p),
                 "rounds": int(rounds),
                 **{f"code_{k}": v for k, v in code_params.items()},  # Add all code params
@@ -479,6 +504,9 @@ def run_QEC_multiprocess_simulation(
                     "lock": lock,
                     "shared_shots": shared_shots,
                     "shared_errors": shared_errors,
+                    "code_type": code_type,
+                    "p_rate": p,
+                    "use_bt_singleshot": use_bt_singleshot,
                 }
                 for _ in range(w)
             ]
@@ -583,6 +611,9 @@ def run_simulation_from_config(config: Union[dict, List[dict]], *, output_dir: s
         bp_iters = exp.get('bp_iters', DEFAULT_BP_ITERS)
         osd_order = exp.get('osd_order', DEFAULT_OSD_ORDER)
         resume_csv = exp.get('resume_csv', None)
+        
+        # BT two-stage decoder configuration
+        use_bt_singleshot = exp.get('use_bt_singleshot', True)
         if resume_csv is None:
             runner_type = "mp" if multiprocess else "serial"
             resume_csv = generate_default_resume_csv(
@@ -610,6 +641,7 @@ def run_simulation_from_config(config: Union[dict, List[dict]], *, output_dir: s
                 resume_csv=resume_csv,
                 resume_every=resume_every,
                 decompose_dem=decompose_eff,
+                use_bt_singleshot=use_bt_singleshot,
             )
         else:
             res = run_QEC_serial_simulation(
@@ -625,6 +657,7 @@ def run_simulation_from_config(config: Union[dict, List[dict]], *, output_dir: s
                 resume_csv=resume_csv,
                 resume_every=resume_every,
                 decompose_dem=decompose_eff,
+                use_bt_singleshot=use_bt_singleshot,
             )
         all_results.extend(res)
     return all_results
@@ -694,7 +727,6 @@ def main() -> None:
                 "code_type": code_type,
                 "code_k": int(code_meta.K),
                 "code_n": int(code_meta.N),
-                "code_D": int(getattr(code_meta, "D", -1)),
                 **{f"code_{k}": v for k, v in code_params.items()},
             },
         )

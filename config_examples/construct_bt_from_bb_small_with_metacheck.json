@@ -2,48 +2,42 @@
   "description": "Small quick-run combined BT-from-BB experiments (sanity test)",
   "experiments": [
     {
-      "description": "bt_from_bb_1",
+      "description": "bt_from_bb_1_small",
       "code_type": "BT",
       "a_poly": [[3, 0], [0, 1], [0, 2]],
       "b_poly": [[0, 3], [1, 0], [2, 0]],
       "c_poly": [[0, 0], [1, 0], [0, 1]],
       "l": 6,
       "m": 6,
-      "p_range": {
-        "min": 0.002,
-        "max": 0.008,
-        "num_points": 5
-      },
-      "rounds_list": [3],
+      "meta_check": true,
+      "p_list": [0.005],
+      "rounds_list": [2],
       "max_shots": 10000,
-      "max_errors": 100,
+      "max_errors": 200,
       "seed": 1,
       "bp_iters": 10,
       "osd_order": 0,
-      "num_workers": 4,
-      "resume_every": 100
+      "num_workers": 8,
+      "resume_every": 25
     },
     {
-      "description": "bt_from_bb_2",
+      "description": "bt_from_bb_2_small",
       "code_type": "BT",
       "a_poly": [[3, 0], [0, 1], [0, 2]],
       "b_poly": [[0, 3], [1, 0], [2, 0]],
       "c_poly": [[0, 0], [1, 1]],
       "l": 6,
       "m": 6,
-      "p_range": {
-        "min": 0.002,
-        "max": 0.008,
-        "num_points": 5
-      },
-      "rounds_list": [3],
+      "meta_check": true,
+      "p_list": [0.005],
+      "rounds_list": [2],
       "max_shots": 10000,
-      "max_errors": 100,
+      "max_errors": 200,
       "seed": 1,
       "bp_iters": 10,
       "osd_order": 0,
-      "num_workers": 4,
-      "resume_every": 100
+      "num_workers": 8,
+      "resume_every": 25
     },
     {
       "description": "bt_from_bb_3_small",
@@ -53,19 +47,16 @@
       "c_poly": [[1, 0], [0, 2]],
       "l": 6,
       "m": 6,
-      "p_range": {
-        "min": 0.002,
-        "max": 0.008,
-        "num_points": 5
-      },
-      "rounds_list": [3],
+      "meta_check": true,
+      "p_list": [0.005],
+      "rounds_list": [2],
       "max_shots": 10000,
-      "max_errors": 100,
+      "max_errors": 200,
       "seed": 1,
       "bp_iters": 10,
       "osd_order": 0,
-      "num_workers": 4,
-      "resume_every": 100
+      "num_workers": 8,
+      "resume_every": 25
     }
   ]
 }

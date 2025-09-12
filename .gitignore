@@ -51,5 +51,11 @@ AGENTS.md
 test/BB_code_benchmark
 deprecated_code/*
 Review_report.md
+test_construction
+goal.md
+python-pro.md
+BT_INTEGRATION_GUIDE.md
+
+uv.lock
 
 # sinter_example.py

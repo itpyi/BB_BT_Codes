@@ -1,0 +1,42 @@
+{
+    "experiments": [
+        {
+            "description": "BT two-stage decoder",
+            "code_type": "BT",
+            "a_poly": [[3, 0], [0, 1], [0, 2]],
+            "b_poly": [[0, 3], [1, 0], [2, 0]],
+            "c_poly": [[0, 0], [1, 1]],
+            "l": 6,
+            "m": 6,
+            "p_list": [0.0025, 0.005, 0.075, 0.01],
+            "rounds_list": [2,3],
+            "max_shots": 100000,
+            "max_errors": 100,
+            "seed": 42,
+            "bp_iters": 20,
+            "osd_order": 0,
+            "num_workers": 8,
+            "resume_every": 1000,
+            "use_bt_singleshot": true
+        },
+        {
+            "description": "BT standard decoder baseline",
+            "code_type": "BT",
+            "a_poly": [[3, 0], [0, 1], [0, 2]],
+            "b_poly": [[0, 3], [1, 0], [2, 0]],
+            "c_poly": [[0, 0], [1, 1]],
+            "l": 6,
+            "m": 6,
+            "p_list": [0.0025, 0.005, 0.075, 0.01],
+            "rounds_list": [2,3],
+            "max_shots": 100000,
+            "max_errors": 100,
+            "seed": 42,
+            "bp_iters": 20,
+            "osd_order": 0,
+            "num_workers": 8,
+            "resume_every": 1000,
+            "use_bt_singleshot": false
+        }
+    ]
+}

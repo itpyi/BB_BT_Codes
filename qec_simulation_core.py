@@ -23,6 +23,9 @@ from ldpc.ckt_noise.dem_matrices import detector_error_model_to_check_matrices
 import time
 import logging
 from distance_estimator import get_min_logical_weight
+from bt_singleshot_decoder import build_dem_decoder_with_meta_scrub
+
+
 
 
 @dataclass
@@ -54,7 +57,7 @@ def _estimate_distances(
     p: float = 0.01,
     bp_iters: int = 20,
     osd_order: int = 0,
-    iters: int = 200,
+    iters: int = 2000,
 ) -> tuple[int, int]:
     """Empirically estimate X/Z distances using BP+OSD sampling.
 
@@ -68,6 +71,8 @@ def _estimate_distances(
     except Exception as e:
         logging.warning("[DIST] distance estimation failed: %s", str(e).splitlines()[0] if str(e) else "Exception")
         return -1, -1
+
+
 
 
 def build_bb_code(
@@ -94,11 +99,6 @@ def build_bb_code(
         # Attach as optional metadata on the code object
         setattr(code, "estimated_distance_x", int(dx))
         setattr(code, "estimated_distance_z", int(dz))
-        try:
-            candidates = [d for d in (dx, dz) if isinstance(d, (int, float)) and d > 0]
-            code.D = int(min(candidates)) if candidates else -1
-        except Exception:
-            setattr(code, "D", -1)
         logging.info("[DIST] BB_%dx%d estimated distances: dx=%s, dz=%s", l, m, dx, dz)
     return code
 
@@ -116,10 +116,15 @@ def build_bt_code(
     est_osd_order: int = 0,
     est_iters: int = 200,
 ) -> css_code:
-    from bivariate_tricycle_codes import get_BT_Hx_Hz  # local import to avoid cycles
+    from bivariate_tricycle_codes import get_BT_Hx_Hz, get_BT_Hmeta  # local import to avoid cycles
 
     Hx, Hz = get_BT_Hx_Hz(a_poly, b_poly, c_poly, l, m)
     code = css_code(hx=Hx, hz=Hz, name=f"BT_{l}x{m}")
+    
+    # Add meta check matrix for single shot decoding
+    H_meta = get_BT_Hmeta(a_poly, b_poly, c_poly, l, m)
+    code.h_meta = H_meta
+    
     code.test()
     if estimate_distance:
         dx, dz = _estimate_distances(
@@ -127,11 +132,6 @@ def build_bt_code(
         )
         setattr(code, "estimated_distance_x", int(dx))
         setattr(code, "estimated_distance_z", int(dz))
-        try:
-            candidates = [d for d in (dx, dz) if isinstance(d, (int, float)) and d > 0]
-            code.D = int(min(candidates)) if candidates else -1
-        except Exception:
-            setattr(code, "D", -1)
         logging.info("[DIST] BT_%dx%d estimated distances: dx=%s, dz=%s", l, m, dx, dz)
     return code
 
@@ -161,11 +161,6 @@ def build_tt_code(
         )
         setattr(code, "estimated_distance_x", int(dx))
         setattr(code, "estimated_distance_z", int(dz))
-        try:
-            candidates = [d for d in (dx, dz) if isinstance(d, (int, float)) and d > 0]
-            code.D = int(min(candidates)) if candidates else -1
-        except Exception:
-            setattr(code, "D", -1)
         logging.info("[DIST] TT_%dx%dx%d estimated distances: dx=%s, dz=%s", l, m, n, dx, dz)
     return code
 
@@ -258,72 +253,68 @@ def extract_code_params_from_config(config: dict) -> Tuple[str, dict]:
     
     if code_type == 'TT':
         code_params['n'] = config['n']
+    
+    # Include meta_check parameter if present in config
+    if 'meta_check' in config:
+        code_params['meta_check'] = config['meta_check']
         
     return code_type, code_params
 
 
+
+
+
+
 def build_decoder_from_circuit(
-    circuit: stim.Circuit, *, bp_iters: int, osd_order: int, decompose_dem: Optional[bool] = None
-) -> Tuple[BpOsdDecoder, np.ndarray]:
+    circuit: stim.Circuit,
+    *,
+    bp_iters: int,
+    osd_order: int,
+    decompose_dem: Optional[bool] = None,
+    code: Optional[Any] = None,
+    p: Optional[float] = None,
+    use_bt_singleshot: bool = True,
+) -> Tuple[Any, np.ndarray]:
+    """Build a DEM-based decoder with meta-parity scrubbing.
+
+    - Constructs a DEM → (H, priors, O) → BpOsdDecoder pipeline.
+    - If `use_bt_singleshot` and the code has `h_meta`, wraps the decoder with a
+      detector-space meta-parity scrubber before decoding.
+    
+    Args:
+        circuit: Stim circuit to analyze
+        bp_iters: Number of BP iterations
+        osd_order: OSD order for post-processing
+        decompose_dem: Whether to decompose the detector error model
+        code: Optional CSS code object for structure information
+        p: Error probability for meta-parity scrubbing
+        use_bt_singleshot: Whether to use BT single-shot meta scrubbing
+        
+    Returns:
+        Tuple of (decoder, observables_matrix)
+    """
     t0 = time.time()
-    # Optional DEM decomposition toggle for speed debugging
+
+    # Build unified DEM-based decoder
+    logging.info("[DEC] Using unified decoder")
+
+    # DEM construction
     if decompose_dem is None:
-        decompose = os.getenv("QEC_DEM_DECOMPOSE")
-        decompose_flag = bool(decompose and decompose not in ("0", "false", "False"))
+        env = os.getenv("QEC_DEM_DECOMPOSE")
+        decompose = bool(env and env not in ("0", "false", "False"))
     else:
-        decompose_flag = bool(decompose_dem)
-    if decompose_flag:
-        try:
-            dem = circuit.detector_error_model(
-                decompose_errors=True, approximate_disjoint_errors=True
-            )
-        except ValueError as e:
-            logging.warning(
-                "[DEC] DEM decomposition failed (%s). Falling back to non-decomposed DEM.",
-                str(e).splitlines()[0] if str(e) else "ValueError",
-            )
-            dem = circuit.detector_error_model(decompose_errors=False)
-    else:
-        dem = circuit.detector_error_model(decompose_errors=False)
-    t1 = time.time()
-    mats = detector_error_model_to_check_matrices(
-        dem, allow_undecomposed_hyperedges=True
+        decompose = bool(decompose_dem)
+    dem = (
+        circuit.detector_error_model(decompose_errors=True, approximate_disjoint_errors=True)
+        if decompose
+        else circuit.detector_error_model(decompose_errors=False)
     )
+    t1 = time.time()
+    mats = detector_error_model_to_check_matrices(dem, allow_undecomposed_hyperedges=True)
     t2 = time.time()
-    try:
-        H = mats.check_matrix
-        O = mats.observables_matrix
-        h_shape = tuple(getattr(H, "shape", ()))
-        o_shape = tuple(getattr(O, "shape", ()))
-        # Sparsity stats when available
-        nnz = getattr(H, "nnz", None)
-        row_deg_max = col_deg_max = avg_col_deg = None
-        try:
-            H_csr = H.tocsr()
-            row_deg = np.diff(H_csr.indptr)
-            row_deg_max = int(row_deg.max()) if row_deg.size else 0
-            # Column degrees via CSC (avoid explicit transpose data copy when large)
-            H_csc = H.tocsc()
-            col_deg = np.diff(H_csc.indptr)
-            col_deg_max = int(col_deg.max()) if col_deg.size else 0
-            avg_col_deg = float(col_deg.mean()) if col_deg.size else 0.0
-        except Exception:
-            pass
-        if nnz is not None and row_deg_max is not None and col_deg_max is not None:
-            logging.info(
-                "[DEC] matrices: H%s nnz=%s row_max=%s col_max=%s col_avg=%.2f, O%s",
-                h_shape,
-                nnz,
-                row_deg_max,
-                col_deg_max,
-                avg_col_deg if avg_col_deg is not None else 0.0,
-                o_shape,
-            )
-        else:
-            logging.info("[DEC] matrices: H%s, O%s", h_shape, o_shape)
-    except Exception:
-        pass
-    osd_method = "osd_e" if osd_order and osd_order > 0 else "osd0"
+
+    # Decoder construction
+    osd_method = "osd_e" if (osd_order and osd_order > 0) else "osd0"
     bposd = BpOsdDecoder(
         mats.check_matrix,
         error_channel=list(mats.priors),
@@ -335,13 +326,26 @@ def build_decoder_from_circuit(
         osd_order=osd_order,
     )
     t3 = time.time()
-    logging.info(
-        "[DEC] DEM build %.2fs | dem->mats %.2fs | BpOsd init %.2fs",
-        t1 - t0,
-        t2 - t1,
-        t3 - t2,
+    logging.info("[DEC] DEM %.2fs | mats %.2fs | init %.2fs", t1 - t0, t2 - t1, t3 - t2)
+
+    # Optional meta-parity scrubber
+    want_scrub = bool(use_bt_singleshot and code is not None and getattr(code, "h_meta", None) is not None)
+    if not want_scrub:
+        return bposd, mats.observables_matrix
+
+    p_spam = float(p) if p is not None else 0.01
+    wrapped = build_dem_decoder_with_meta_scrub(
+        base_decoder=bposd,
+        dem=dem,
+        code=code,  # type: ignore[arg-type]
+        p_spam=p_spam,
+        bp_iters=bp_iters,
+        osd_order=osd_order,
     )
-    return bposd, mats.observables_matrix
+    logging.info("[DEC] Using DEM decoder with meta-parity scrubbing (BT)")
+    return wrapped, mats.observables_matrix
+
+
 
 
 class _LockLike(Protocol):
