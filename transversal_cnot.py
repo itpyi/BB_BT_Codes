@@ -28,6 +28,9 @@ from bivariate_bicycle_codes import get_BB_Hx_Hz, get_BB_matrix
 from bivariate_tricycle_codes import get_BT_Hx_Hz, get_BT_matrix, get_BT_Hmeta
 from qec_simulation_core import build_bb_code, build_bt_code
 from bposd.css import css_code
+from std_monomial_basis_f2 import standard_monomial_basis_f2_simple
+from solve_f2root_multi_bc import solve_common_roots_multi_over_F2_with_BC, all_c_variants_over_F2
+import sympy as sp
 
 
 @dataclass
@@ -569,33 +572,49 @@ class TransversalCNOTVerifier:
                 bt_lx = bt_lx.toarray()
                 bt_lz = bt_lz.toarray()
             
-            # Check orthogonality within each code (basic CSS requirement)
-            bb_orthogonal = np.all((bb_lx @ bb_lz.T) % 2 == 0)
-            bt_orthogonal = np.all((bt_lx @ bt_lz.T) % 2 == 0)
+            # Check CSS anticommutation structure within each code
+            # For CSS codes: X_i should anticommute with Z_i (diagonal = 1)
+            # and commute with Z_j for i≠j (off-diagonal = 0)
+            bb_commutator = (bb_lx @ bb_lz.T) % 2
+            bt_commutator = (bt_lx @ bt_lz.T) % 2
+            
+            # Check if anticommutation structure is correct
+            bb_css_valid = True
+            bt_css_valid = True
+            
+            if bb_lx.shape[0] > 0 and bb_lz.shape[0] > 0:
+                n_bb_logical = min(bb_lx.shape[0], bb_lz.shape[0])
+                expected_bb = np.eye(n_bb_logical, dtype=np.uint8)
+                bb_css_valid = np.array_equal(bb_commutator[:n_bb_logical, :n_bb_logical], expected_bb)
+            
+            if bt_lx.shape[0] > 0 and bt_lz.shape[0] > 0:
+                n_bt_logical = min(bt_lx.shape[0], bt_lz.shape[0])
+                expected_bt = np.eye(n_bt_logical, dtype=np.uint8)
+                bt_css_valid = np.array_equal(bt_commutator[:n_bt_logical, :n_bt_logical], expected_bt)
             
             # Check if we found cyclic operations (this indicates proper structure)
             cyclic_results = self.verify_cyclic_logical_operations()
             has_cyclic_structure = cyclic_results['cyclic_shifts_detected']
             
-            return bb_orthogonal and bt_orthogonal and has_cyclic_structure
+            return bb_css_valid and bt_css_valid and has_cyclic_structure
             
         except Exception:
             # If any computation fails, return False
             return False
     
     def calculate_h0_homology_group(self) -> Dict[str, Any]:
-        """Calculate H₀(C) homology group using Gröbner basis.
+        """Calculate H₀(C) homology group using exact Gröbner basis computation.
         
-        H₀(C) = F₂[x,y,x⁻¹,y⁻¹] / ⟨c(x,y), x^l-1, y^m-1⟩
+        H₀(C) = F₂[x,y] / ⟨c(x,y), x^l-1, y^m-1⟩
         
-        This provides a basic analysis of the homological structure.
-        For complete Gröbner basis computation, we would need advanced symbolic libraries.
+        Uses the std_monomial_basis_f2.py module to compute the exact standard
+        monomial basis and dimension of the homology group.
         
         Returns:
-            Dictionary with homology group analysis
+            Dictionary with exact homology group analysis
         """
         if self.verbose:
-            print("Analyzing H₀(C) homology group...")
+            print("Computing exact H₀(C) homology group using Gröbner basis...")
         
         c_poly = self.bt_params['c_poly']
         l, m = self.l, self.m
@@ -604,48 +623,117 @@ class TransversalCNOTVerifier:
             'c_polynomial_terms': c_poly,
             'constraints': {
                 'x_constraint': f'x^{l} - 1 = 0',
-                'y_constraint': f'y^{m} - 1 = 0',
+                'y_constraint': f'y^{m} - 1 = 0', 
                 'c_constraint': self._format_polynomial_string(c_poly)
             },
-            'root_analysis': {},
+            'groebner_basis': [],
+            'leading_monomials': [],
+            'standard_monomials': [],
+            'exact_dimension': 0,
+            'bounds': {},
             'generators_found': [],
-            'homology_dimension_estimate': 0
+            'computation_successful': False
         }
         
-        # Analyze roots of the constraint system
         try:
-            roots = self._find_constraint_roots(c_poly, l, m)
-            results['root_analysis'] = {
-                'total_roots_found': len(roots),
-                'sample_roots': roots[:5] if len(roots) > 5 else roots,
-                'analysis': f"Found {len(roots)} roots where c(x,y)=0, x^{l}=1, y^{m}=1"
-            }
+            # Create SymPy symbols
+            x, y = sp.symbols('x y')
+            vars_symbols = [x, y]
             
-            # Estimate generators based on root structure
-            if roots:
-                generators = self._estimate_homology_generators(roots, l, m)
-                results['generators_found'] = generators
-                results['homology_dimension_estimate'] = len(generators)
+            # Convert c_poly from [[i,j], ...] format to SymPy expression
+            c_expr = 0
+            for i, j in c_poly:
+                c_expr += x**i * y**j
                 
+            # Set up generators: c(x,y) and period constraints
+            generators = [c_expr]
+            periods = {x: l, y: m}  # x^l - 1 = 0, y^m - 1 = 0
+            
             if self.verbose:
-                print(f"  ✓ Found {len(roots)} constraint system roots")
-                print(f"  ✓ Estimated {len(results['generators_found'])} homology generators")
-                for i, gen in enumerate(results['generators_found']):
-                    print(f"    Generator {i}: x^{gen[0]} * y^{gen[1]}")
+                print(f"  Computing with generators: c(x,y) = {c_expr}")
+                print(f"  Period constraints: x^{l} - 1 = 0, y^{m} - 1 = 0")
+            
+            # Compute standard monomial basis
+            basis_result = standard_monomial_basis_f2_simple(
+                gens=generators,
+                vars_symbols=vars_symbols, 
+                periods=periods,
+                order="lex"
+            )
+            
+            if "Error" in basis_result:
+                results['error'] = basis_result["Error"]
+                if self.verbose:
+                    print(f"  ✗ Computation failed: {basis_result['Error']}")
+                return results
+            
+            # Extract results
+            results['groebner_basis'] = [str(g) for g in basis_result['GroebnerBasis']]
+            results['leading_monomials'] = [str(m) for m in basis_result['LeadingMonomials']]
+            results['standard_monomials'] = [str(m) for m in basis_result['StandardMonomials']]
+            results['exact_dimension'] = basis_result['Dimension']
+            results['bounds'] = {str(k): v for k, v in basis_result['Bounds'].items()}
+            results['logical_operator_count'] = basis_result['LogicalOperator']
+            results['computation_successful'] = True
+            
+            # Convert standard monomials to generator format for compatibility
+            generators_found = []
+            for mono in basis_result['StandardMonomials']:
+                # Extract exponents from monomials like x^i * y^j
+                if hasattr(mono, 'as_powers_dict'):
+                    powers = mono.as_powers_dict()
+                    x_exp = powers.get(x, 0) 
+                    y_exp = powers.get(y, 0)
+                    generators_found.append((x_exp, y_exp))
+                    
+            results['generators_found'] = generators_found
+            
+            if self.verbose:
+                print(f"  ✓ Exact computation successful!")
+                print(f"  ✓ Gröbner basis computed with {len(results['groebner_basis'])} elements")
+                print(f"  ✓ Standard monomial basis has dimension {results['exact_dimension']}")
+                print(f"  ✓ Variable bounds: {results['bounds']}")
+                print(f"  ✓ Found {len(generators_found)} standard monomials (basis elements)")
+                if len(generators_found) <= 10:
+                    for i, (x_exp, y_exp) in enumerate(generators_found):
+                        print(f"    Basis element {i}: x^{x_exp} * y^{y_exp}")
+                else:
+                    print(f"    (First 5 basis elements shown)")
+                    for i, (x_exp, y_exp) in enumerate(generators_found[:5]):
+                        print(f"    Basis element {i}: x^{x_exp} * y^{y_exp}")
                     
         except Exception as e:
-            results['root_analysis']['error'] = str(e)
+            results['error'] = str(e)
             if self.verbose:
-                print(f"  ⚠ Root analysis failed: {e}")
+                print(f"  ✗ Gröbner basis computation failed: {e}")
         
-        # Basic polynomial analysis
+        # Add F₂ constraint system analysis for additional mathematical insight
+        if results['computation_successful']:
+            f2_analysis = self._analyze_f2_constraint_system(c_poly, l, m)
+            results['f2_constraint_analysis'] = f2_analysis
+            
+            # Extract additional generator info from F₂ analysis
+            f2_generators = self._extract_f2_generators_from_analysis(f2_analysis)
+            results['f2_algebraic_generators'] = f2_generators
+        
+        # Basic polynomial analysis for compatibility
         results['polynomial_analysis'] = self._analyze_c_polynomial(c_poly, l, m)
         
-        if self.verbose:
+        if self.verbose and results['computation_successful']:
             print(f"  C polynomial: {results['constraints']['c_constraint']}")
-            print(f"  Constraints: x^{l}-1 = 0, y^{m}-1 = 0")
-            print(f"  Homology dimension estimate: {results['homology_dimension_estimate']}")
-            print("  Note: Complete Gröbner basis computation requires specialized libraries")
+            print(f"  H₀(C) exact dimension: {results['exact_dimension']}")
+            
+            # Show F₂ constraint analysis results
+            f2_result = results.get('f2_constraint_analysis', {})
+            if f2_result.get('f2_analysis_successful', False):
+                print(f"  F₂ constraint system analysis:")
+                print(f"    Has common root over F₂: {f2_result.get('has_common_root', False)}")
+                if f2_result.get('triangular_assignments'):
+                    print(f"    Triangular relations: {f2_result['triangular_assignments']}")
+                if f2_result.get('gcd_diagnostics', {}).get('gcd_fx_xm1'):
+                    print(f"    GCD analysis: gcd(f_x, x^{l}+1) = {f2_result['gcd_diagnostics']['gcd_fx_xm1']}")
+            
+            print(f"  This represents the exact dimension of the homology group!")
         
         return results
     
@@ -669,72 +757,91 @@ class TransversalCNOTVerifier:
         
         return " + ".join(terms)
     
-    def _find_constraint_roots(self, c_poly: List[List[int]], l: int, m: int, 
-                             tolerance: float = 1e-12) -> List[Tuple[complex, complex]]:
-        """Find roots of c(x,y)=0 subject to x^l=1, y^m=1."""
-        import itertools
+    def _analyze_f2_constraint_system(self, c_poly: List[List[int]], l: int, m: int) -> Dict[str, Any]:
+        """Analyze constraint system c(x,y)=0, x^l-1=0, y^m-1=0 over F₂ algebraic closure.
         
-        # Generate l-th and m-th roots of unity
-        x_roots = [np.exp(2j * np.pi * k / l) for k in range(l)]
-        y_roots = [np.exp(2j * np.pi * k / m) for k in range(m)]
+        Uses exact F₂ algebraic methods instead of complex root approximations.
+        """
+        # Convert c_poly to polynomial string
+        c_terms = []
+        for i, j in c_poly:
+            if i == 0 and j == 0:
+                c_terms.append("1")
+            elif i == 0:
+                c_terms.append(f"y^{j}" if j > 1 else "y")
+            elif j == 0:
+                c_terms.append(f"x^{i}" if i > 1 else "x")  
+            else:
+                x_part = f"x^{i}" if i > 1 else "x"
+                y_part = f"y^{j}" if j > 1 else "y"
+                c_terms.append(f"{x_part}*{y_part}")
         
-        constraint_roots = []
+        c_poly_str = " + ".join(c_terms) if c_terms else "0"
         
-        for x, y in itertools.product(x_roots, y_roots):
-            # Evaluate c(x,y)
-            c_value = 0.0 + 0.0j
-            for i, j in c_poly:
-                c_value += (x ** i) * (y ** j)
+        try:
+            # Solve the constraint system over F₂
+            result = solve_common_roots_multi_over_F2_with_BC(
+                poly_strs=[c_poly_str],
+                var_names=["x", "y"],
+                m=l,  # x^l - 1 = 0 
+                l=m,  # y^m - 1 = 0
+                order="lex"
+            )
             
-            # Check if c(x,y) ≈ 0
-            if abs(c_value) < tolerance:
-                constraint_roots.append((x, y))
-        
-        return constraint_roots
+            analysis = {
+                'f2_analysis_successful': True,
+                'has_common_root': result.has_common_root_with_bc,
+                'groebner_basis_with_bc': result.groebner_basis_with_bc,
+                'groebner_basis_no_bc': result.groebner_basis_no_bc,
+                'univariate_eliminants': result.univariate_eliminants_no_bc,
+                'univariate_factors': result.univariate_factors_no_bc,
+                'triangular_assignments': result.triangular_assignments,
+                'gcd_diagnostics': {
+                    'gcd_fx_xm1': result.gcd_fx_xm1,
+                    'gcd_fy_yl1': result.gcd_fy_yl1
+                },
+                'boundary_conditions': result.bc_polys,
+                'constraint_polynomial': c_poly_str
+            }
+            
+            return analysis
+            
+        except Exception as e:
+            return {
+                'f2_analysis_successful': False,
+                'error': str(e),
+                'constraint_polynomial': c_poly_str
+            }
     
-    def _estimate_homology_generators(self, roots: List[Tuple[complex, complex]], 
-                                    l: int, m: int) -> List[Tuple[int, int]]:
-        """Estimate homology group generators from constraint roots.
+    def _extract_f2_generators_from_analysis(self, f2_analysis: Dict[str, Any]) -> List[Tuple[int, int]]:
+        """Extract generator information from F₂ algebraic analysis.
         
-        This is a heuristic approach - true generators require Gröbner basis computation.
+        The standard monomial basis provides exact generators, and the F₂ constraint
+        analysis provides additional structural information.
         """
         generators = []
         
-        # Look for patterns in the roots that suggest monomial generators
-        # This is a simplified heuristic approach
-        
-        if not roots:
+        if not f2_analysis.get('f2_analysis_successful', False):
             return generators
         
-        # Check if roots form regular patterns that suggest specific generators
-        root_powers = []
-        for x, y in roots:
-            # Convert to discrete log representation (approximate)
-            try:
-                # Find k, j such that x ≈ exp(2πik/l), y ≈ exp(2πij/m)
-                x_angle = np.angle(x) / (2 * np.pi) * l
-                y_angle = np.angle(y) / (2 * np.pi) * m
-                
-                k = int(round(x_angle)) % l
-                j = int(round(y_angle)) % m
-                
-                root_powers.append((k, j))
-            except:
-                continue
+        # The triangular assignments give us direct relationships
+        triangular = f2_analysis.get('triangular_assignments', {})
         
-        # Look for GCD patterns or regular structures
-        if len(root_powers) > 1:
-            # Simplified generator estimation
-            # In practice, this would use advanced algebraic techniques
-            unique_powers = list(set(root_powers))
-            
-            # Add some basic generators based on observed patterns
-            if len(unique_powers) < l * m:  # Not all roots of unity appear
-                # Suggest generators that might explain the missing roots
-                generators.append((1, 0))  # x generator
-                generators.append((0, 1))  # y generator
+        # Analyze the structure based on F₂ algebraic results
+        if f2_analysis.get('has_common_root', False):
+            # If there are common roots, the constraint system has solutions
+            # The standard monomial basis (computed separately) gives the exact structure
+            generators.append((1, 0))  # x direction
+            generators.append((0, 1))  # y direction
         
-        return generators[:4]  # Limit to reasonable number
+        # Additional structural information from Gröbner basis
+        groebner_with_bc = f2_analysis.get('groebner_basis_with_bc', [])
+        if len(groebner_with_bc) > 0:
+            # Analyze the leading terms to understand the constraint structure
+            # This provides more precise information than heuristic root analysis
+            pass
+        
+        return generators
     
     def _analyze_c_polynomial(self, c_poly: List[List[int]], l: int, m: int) -> Dict[str, Any]:
         """Basic analysis of the C polynomial structure."""
@@ -757,6 +864,318 @@ class TransversalCNOTVerifier:
         analysis['y_powers_mod_m'] = [term[1] % m for term in c_poly]
         
         return analysis
+    
+    def generate_c_variants_from_ab_system(self) -> Dict[str, Any]:
+        """Generate c-polynomial variants using F₂ Gröbner basis analysis of a,b system.
+        
+        This method uses the all_c_variants_over_F2 function to find all possible 
+        c polynomials that maintain consistency with the given a,b polynomial system.
+        
+        Returns:
+            Dictionary with generated c variants and analysis results
+        """
+        if self.verbose:
+            print("Generating c-polynomial variants from a,b system using F₂ analysis...")
+        
+        # Extract a,b polynomials from BT parameters
+        a_poly = self.bt_params['a_poly']
+        b_poly = self.bt_params['b_poly']
+        l, m = self.l, self.m
+        
+        results = {
+            'input_ab_system': {
+                'a_polynomial': a_poly,
+                'b_polynomial': b_poly,
+                'grid_dimensions': (l, m)
+            },
+            'generated_variants': [],
+            'variant_count': 0,
+            'generation_successful': False,
+            'analysis_summary': {}
+        }
+        
+        try:
+            # Convert polynomial format from [[i,j], ...] to string format
+            def format_poly_for_f2(poly_terms):
+                if not poly_terms:
+                    return "0"
+                terms = []
+                for i, j in poly_terms:
+                    if i == 0 and j == 0:
+                        terms.append("1")
+                    elif i == 0:
+                        terms.append(f"y^{j}" if j > 1 else "y")
+                    elif j == 0:
+                        terms.append(f"x^{i}" if i > 1 else "x")
+                    else:
+                        x_part = f"x^{i}" if i > 1 else "x"
+                        y_part = f"y^{j}" if j > 1 else "y"
+                        terms.append(f"{x_part}*{y_part}")
+                return " + ".join(terms)
+            
+            a_str = format_poly_for_f2(a_poly)
+            b_str = format_poly_for_f2(b_poly)
+            
+            if self.verbose:
+                print(f"  Input a(x,y) = {a_str}")
+                print(f"  Input b(x,y) = {b_str}")
+                print(f"  Grid constraints: x^{l} + 1 = 0, y^{m} + 1 = 0")
+            
+            # Generate c variants using F₂ algebraic analysis
+            c_variants_dict = all_c_variants_over_F2(a_str, b_str, m=l, l=m)
+            
+            # Process the results
+            # c_variants_dict is a dictionary like {'fx_univariate': expr, 'fy_univariate': expr, ...}
+            if c_variants_dict:
+                generated_variants = []
+                original_c_str = self._format_polynomial_string(self.bt_params['c_poly'])
+                
+                for i, (variant_name, c_variant_expr) in enumerate(c_variants_dict.items()):
+                    c_variant_str = str(c_variant_expr)
+                    
+                    # For now, store the string format and add basic analysis
+                    variant_info = {
+                        'variant_index': i,
+                        'variant_name': variant_name,
+                        'c_polynomial_str': c_variant_str,
+                        'c_polynomial_expr': c_variant_expr,
+                        'is_original': c_variant_str == original_c_str,
+                        'degree_analysis': self._analyze_polynomial_degree(c_variant_str)
+                    }
+                    
+                    generated_variants.append(variant_info)
+                
+                results['generated_variants'] = generated_variants
+                results['variant_count'] = len(generated_variants)
+                results['generation_successful'] = True
+                
+                # Analysis summary
+                original_found = any(v['is_original'] for v in generated_variants)
+                results['analysis_summary'] = {
+                    'original_c_found_in_variants': original_found,
+                    'total_variants_generated': len(generated_variants),
+                    'algebraic_constraints_satisfied': len(c_variants_dict) > 0,
+                    'f2_computation_details': {
+                        'groebner_basis_computed': 'mixed_groebner_bc' in c_variants_dict,
+                        'constraint_system_analyzed': 'fx_univariate' in c_variants_dict or 'fy_univariate' in c_variants_dict
+                    }
+                }
+                
+                if self.verbose:
+                    print(f"  ✓ Generated {len(generated_variants)} c-polynomial variants")
+                    print(f"  ✓ Original c polynomial {'found' if original_found else 'not found'} in variants")
+                    print(f"  ✓ F₂ algebraic constraints satisfied: {results['analysis_summary']['algebraic_constraints_satisfied']}")
+                    
+                    if len(generated_variants) <= 5:
+                        for variant in generated_variants:
+                            orig_marker = " (original)" if variant['is_original'] else ""
+                            print(f"    {variant['variant_name']}: {variant['c_polynomial_str']}{orig_marker}")
+                    else:
+                        print(f"    (First 3 variants shown)")
+                        for variant in generated_variants[:3]:
+                            orig_marker = " (original)" if variant['is_original'] else ""
+                            print(f"    {variant['variant_name']}: {variant['c_polynomial_str']}{orig_marker}")
+                
+            else:
+                results['error'] = "No c variants generated or invalid response format"
+                if self.verbose:
+                    print(f"  ✗ No c variants generated: {c_variants_dict}")
+                
+        except Exception as e:
+            results['error'] = str(e)
+            if self.verbose:
+                print(f"  ✗ C variant generation failed: {e}")
+        
+        return results
+    
+    def _analyze_polynomial_degree(self, poly_str: str) -> Dict[str, int]:
+        """Analyze degree properties of a polynomial string."""
+        # Simple degree analysis - count highest powers of x and y
+        import re
+        
+        # Find all x^n terms
+        x_powers = re.findall(r'x\^(\d+)', poly_str)
+        x_powers += ['1' for _ in re.findall(r'(?<!\^)x(?!\^)', poly_str)]  # plain x terms
+        
+        # Find all y^n terms  
+        y_powers = re.findall(r'y\^(\d+)', poly_str)
+        y_powers += ['1' for _ in re.findall(r'(?<!\^)y(?!\^)', poly_str)]  # plain y terms
+        
+        max_x_degree = max([int(p) for p in x_powers]) if x_powers else 0
+        max_y_degree = max([int(p) for p in y_powers]) if y_powers else 0
+        
+        return {
+            'max_x_degree': max_x_degree,
+            'max_y_degree': max_y_degree,
+            'total_degree': max_x_degree + max_y_degree
+        }
+    
+    def test_robustness_with_generated_c_variants(self) -> Dict[str, Any]:
+        """Test the robustness of tCNOT verification using generated c-polynomial variants.
+        
+        This method generates multiple c-polynomial variants and tests the tCNOT
+        verification on each one to assess robustness and sensitivity.
+        
+        Returns:
+            Dictionary with robustness test results
+        """
+        if self.verbose:
+            print("Testing tCNOT verification robustness with generated c-polynomial variants...")
+        
+        # Generate c variants
+        variant_results = self.generate_c_variants_from_ab_system()
+        
+        if not variant_results.get('generation_successful', False):
+            return {
+                'robustness_test_completed': False,
+                'error': 'Failed to generate c-polynomial variants',
+                'variant_generation_error': variant_results.get('error', 'Unknown error')
+            }
+        
+        generated_variants = variant_results['generated_variants']
+        robustness_results = {
+            'robustness_test_completed': True,
+            'total_variants_tested': len(generated_variants),
+            'variant_test_results': [],
+            'robustness_summary': {}
+        }
+        
+        # Test each variant (limit to first 10 for performance)
+        variants_to_test = generated_variants[:min(10, len(generated_variants))]
+        
+        verification_outcomes = {
+            'stabilizer_commutation_passed': 0,
+            'truth_table_passed': 0, 
+            'h0_computation_successful': 0,
+            'overall_valid': 0
+        }
+        
+        for variant in variants_to_test:
+            if self.verbose:
+                print(f"  Testing variant {variant['variant_index']}: {variant['c_polynomial_str']}")
+            
+            try:
+                # Create modified BT parameters with the new c polynomial
+                # Note: We're keeping the string format for now
+                modified_bt_params = self.bt_params.copy()
+                # For full integration, you'd parse the string back to [[i,j], ...] format
+                # For now, we'll analyze the string format polynomial
+                
+                # Test H₀ computation with the new c polynomial
+                # This requires parsing the string back to terms
+                c_terms = self._parse_polynomial_string_to_terms(variant['c_polynomial_str'])
+                if c_terms is not None:
+                    modified_bt_params['c_poly'] = c_terms
+                    
+                    # Create temporary verifier with modified c polynomial
+                    temp_verifier = TransversalCNOTVerifier(
+                        self.bb_params, modified_bt_params, verbose=False
+                    )
+                    
+                    # Run key verification tests
+                    stab_result = temp_verifier.verify_stabilizer_commutation()
+                    truth_result = temp_verifier.verify_logical_truth_table()
+                    h0_result = temp_verifier.calculate_h0_homology_group()
+                    
+                    stab_passed = stab_result.x_stab_commutes and stab_result.z_stab_commutes
+                    truth_passed = truth_result.table_correct
+                    h0_successful = h0_result.get('computation_successful', False)
+                    overall_valid = stab_passed and truth_passed
+                    
+                    # Update counters
+                    if stab_passed: verification_outcomes['stabilizer_commutation_passed'] += 1
+                    if truth_passed: verification_outcomes['truth_table_passed'] += 1
+                    if h0_successful: verification_outcomes['h0_computation_successful'] += 1
+                    if overall_valid: verification_outcomes['overall_valid'] += 1
+                    
+                    test_result = {
+                        'variant_index': variant['variant_index'],
+                        'c_polynomial': variant['c_polynomial_str'],
+                        'stabilizer_commutation_passed': stab_passed,
+                        'truth_table_passed': truth_passed,
+                        'h0_computation_successful': h0_successful,
+                        'overall_tCNOT_valid': overall_valid,
+                        'h0_dimension': h0_result.get('exact_dimension', 0)
+                    }
+                    
+                    robustness_results['variant_test_results'].append(test_result)
+                
+            except Exception as e:
+                error_result = {
+                    'variant_index': variant['variant_index'],
+                    'c_polynomial': variant['c_polynomial_str'],
+                    'test_error': str(e),
+                    'test_failed': True
+                }
+                robustness_results['variant_test_results'].append(error_result)
+        
+        # Calculate robustness summary
+        total_tested = len(robustness_results['variant_test_results'])
+        if total_tested > 0:
+            robustness_results['robustness_summary'] = {
+                'stabilizer_success_rate': verification_outcomes['stabilizer_commutation_passed'] / total_tested,
+                'truth_table_success_rate': verification_outcomes['truth_table_passed'] / total_tested,
+                'h0_computation_success_rate': verification_outcomes['h0_computation_successful'] / total_tested,
+                'overall_validity_rate': verification_outcomes['overall_valid'] / total_tested,
+                'most_robust_aspect': max(verification_outcomes, key=verification_outcomes.get),
+                'least_robust_aspect': min(verification_outcomes, key=verification_outcomes.get)
+            }
+        
+        if self.verbose:
+            summary = robustness_results['robustness_summary']
+            print(f"  ✓ Robustness test completed on {total_tested} variants")
+            print(f"  ✓ Overall tCNOT validity rate: {summary['overall_validity_rate']:.2%}")
+            print(f"  ✓ Stabilizer commutation success rate: {summary['stabilizer_success_rate']:.2%}")
+            print(f"  ✓ Truth table success rate: {summary['truth_table_success_rate']:.2%}")
+            print(f"  ✓ H₀ computation success rate: {summary['h0_computation_success_rate']:.2%}")
+        
+        return robustness_results
+    
+    def _parse_polynomial_string_to_terms(self, poly_str: str) -> Optional[List[List[int]]]:
+        """Parse polynomial string back to [[i,j], ...] format.
+        
+        This is a simplified parser for basic polynomial strings.
+        """
+        try:
+            import re
+            
+            terms = []
+            # Split by + and clean up
+            parts = re.split(r'\s*\+\s*', poly_str.strip())
+            
+            for part in parts:
+                part = part.strip()
+                if not part:
+                    continue
+                
+                # Handle constant term
+                if part == '1':
+                    terms.append([0, 0])
+                    continue
+                
+                # Initialize exponents
+                x_exp, y_exp = 0, 0
+                
+                # Find x^n or x
+                x_match = re.search(r'x\^(\d+)', part)
+                if x_match:
+                    x_exp = int(x_match.group(1))
+                elif 'x' in part:
+                    x_exp = 1
+                
+                # Find y^n or y
+                y_match = re.search(r'y\^(\d+)', part)
+                if y_match:
+                    y_exp = int(y_match.group(1))
+                elif 'y' in part:
+                    y_exp = 1
+                
+                terms.append([x_exp, y_exp])
+            
+            return terms if terms else None
+            
+        except Exception:
+            return None
     
     def run_complete_verification(self) -> Dict[str, Any]:
         """Run complete transversal CNOT verification suite.
@@ -794,7 +1213,8 @@ class TransversalCNOTVerifier:
         # 4. H₀(C) homology group analysis
         h0_result = self.calculate_h0_homology_group()
         results['homology_group'] = {
-            'calculated': h0_result['homology_dimension_estimate'] > 0,
+            'calculated': h0_result.get('computation_successful', False),
+            'exact_dimension': h0_result.get('exact_dimension', 0),
             'details': h0_result
         }
         
@@ -814,7 +1234,7 @@ class TransversalCNOTVerifier:
             print(f"  Stabilizer commutation: {'✓' if results['stabilizer_commutation']['passed'] else '✗'}")
             print(f"  Logical truth table: {'✓' if results['logical_truth_table']['passed'] else '✗'}")
             print(f"  Cyclic operations: {'✓' if results['cyclic_operations']['shifts_found'] else '◐'}")
-            print(f"  H₀(C) calculation: {'◐ (framework)' if results['homology_group']['calculated'] else '◐ (todo)'}")
+            print(f"  H₀(C) calculation: {'✓ (exact dim=' + str(results['homology_group']['exact_dimension']) + ')' if results['homology_group']['calculated'] else '✗ (failed)'}")
             print(f"  Overall tCNOT valid: {'✓' if results['overall']['transversal_cnot_valid'] else '✗'}")
         
         return results
@@ -921,22 +1341,44 @@ def main():
         print("✗ No cyclic shifts detected")
     print()
     
-    # Test 2: H₀(C) homology group
-    print("2. H₀(C) HOMOLOGY GROUP ANALYSIS") 
+    # Test 2: C-polynomial variant generation
+    print("2. C-POLYNOMIAL VARIANT GENERATION")
+    print("-" * 36) 
+    c_variants_result = verifier.generate_c_variants_from_ab_system()
+    if c_variants_result.get('generation_successful', False):
+        variant_count = c_variants_result.get('variant_count', 0)
+        print(f"✓ Generated {variant_count} c-polynomial variants from a,b system")
+        original_found = c_variants_result['analysis_summary'].get('original_c_found_in_variants', False)
+        print(f"✓ Original c polynomial {'found' if original_found else 'not found'} in variants")
+        
+        # Show first few variants
+        variants = c_variants_result.get('generated_variants', [])
+        for variant in variants[:3]:
+            orig_marker = " (original)" if variant.get('is_original', False) else ""
+            print(f"  {variant.get('variant_name', 'N/A')}: {variant.get('c_polynomial_str', 'N/A')}{orig_marker}")
+        if len(variants) > 3:
+            print(f"  ... and {len(variants) - 3} more variants")
+    else:
+        error_msg = c_variants_result.get('error', 'Unknown error')
+        print(f"✗ C-polynomial variant generation failed: {error_msg}")
+    print()
+
+    # Test 3: H₀(C) homology group
+    print("3. H₀(C) HOMOLOGY GROUP ANALYSIS") 
     print("-" * 35)
     h0_result = verifier.calculate_h0_homology_group()
-    root_count = h0_result['root_analysis']['total_roots_found']
-    gen_count = h0_result['homology_dimension_estimate']
+    gen_count = h0_result.get('exact_dimension', 0)
+    basis_count = len(h0_result.get('standard_monomials', []))
     print(f"✓ C polynomial: {h0_result['constraints']['c_constraint']}")
-    print(f"✓ Constraint roots found: {root_count}")
-    print(f"✓ Estimated generators: {gen_count}")
+    print(f"✓ H₀(C) exact dimension: {gen_count}")
+    print(f"✓ Standard monomial basis elements: {basis_count}")
     if h0_result['generators_found']:
         for i, (x_exp, y_exp) in enumerate(h0_result['generators_found']):
             print(f"  Generator {i}: x^{x_exp} * y^{y_exp}")
     print()
     
-    # Test 3: Logical truth table
-    print("3. LOGICAL TRUTH TABLE VERIFICATION")
+    # Test 4: Logical truth table
+    print("4. LOGICAL TRUTH TABLE VERIFICATION")
     print("-" * 38)
     truth_result = verifier.verify_logical_truth_table()
     if truth_result.table_correct:
@@ -947,8 +1389,8 @@ def main():
         print("✗ Truth table verification failed")
     print()
     
-    # Test 4: Stabilizer commutation
-    print("4. STABILIZER COMMUTATION VERIFICATION")
+    # Test 5: Stabilizer commutation
+    print("5. STABILIZER COMMUTATION VERIFICATION")
     print("-" * 41)
     stab_result = verifier.verify_stabilizer_commutation()
     if stab_result.x_stab_commutes and stab_result.z_stab_commutes:

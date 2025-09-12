@@ -6,7 +6,8 @@ from bivariate_tricycle_codes import get_BT_Hmeta, get_BT_Hx_Hz
 from distance_estimator import get_min_logical_weight
 from bposd.css import css_code
 from ldpc.code_util import compute_code_dimension
-from typing import Any, Tuple, List
+from solve_f2root_multi_bc import solve_common_roots_multi_over_F2_with_BC, all_c_variants_over_F2
+from typing import Any, Tuple, List, Dict
 import itertools
 
 
@@ -157,6 +158,44 @@ def analyze_with_distance_estimator(a_poly=None, b_poly=None, c_poly=None, l=Non
 
 
 
+def test_robustness_with_generated_variants(a_poly=None, b_poly=None, l=None, m=None):
+    """Test BT codes using c_poly variants generated from F₂ analysis of a,b system."""
+    # Default parameters
+    if a_poly is None:
+        a_poly = [[3, 0], [0, 1], [0, 2]]
+    if b_poly is None:
+        b_poly = [[0, 3], [1, 0], [2, 0]]
+    if l is None:
+        l = 6
+    if m is None:
+        m = 6
+    
+    print(f"\nAdvanced Robustness Test: F₂-Generated C Variants")
+    print("=" * 60)
+    print(f"Generating c polynomials from a,b system using Gröbner basis analysis")
+    print(f"Parameters: a_poly={a_poly}, b_poly={b_poly}, l={l}, m={m}")
+    print()
+    
+    # Generate c variants from a,b system
+    print("Generating c polynomial variants from a,b Gröbner basis...")
+    generated_variants = generate_c_poly_variants_from_ab(a_poly, b_poly, l, m)
+    
+    if generated_variants:
+        print(f"✓ Generated {len(generated_variants)} c polynomial variants:")
+        for i, (c_poly, desc) in enumerate(generated_variants[:5]):  # Show first 5
+            print(f"  {i+1}. {desc}")
+        if len(generated_variants) > 5:
+            print(f"  ... and {len(generated_variants)-5} more variants")
+    else:
+        print("✗ No variants generated, using standard set")
+        generated_variants = get_standard_c_poly_variants()
+        
+    print()
+    
+    # Test the generated variants
+    test_robustness(a_poly, b_poly, l, m, variants=generated_variants)
+
+
 def test_robustness(a_poly=None, b_poly=None, l=None, m=None, variants=None):
     """Test different c_poly values for both BT code and meta check."""
     # Default parameters
@@ -237,25 +276,67 @@ def evaluate_poly_2d(coeffs: np.ndarray, x: complex, y: complex) -> complex:
 
 
 
-def find_ab_roots_on_unit_circles(a_coeffs: np.ndarray, b_coeffs: np.ndarray, 
-                                  l: int, m: int, tolerance: float = 1e-10) -> List[Tuple[complex, complex]]:
-    """Find common roots of a(x,y)=0, b(x,y)=0, x^l-1=0, y^m-1=0."""
-    # Generate all l-th and m-th roots of unity
-    x_roots = [np.exp(2j * np.pi * k / l) for k in range(l)]
-    y_roots = [np.exp(2j * np.pi * k / m) for k in range(m)]
+def find_ab_roots_over_f2(a_poly: List[List[int]], b_poly: List[List[int]], 
+                         l: int, m: int) -> Dict[str, Any]:
+    """Find common roots of a(x,y)=0, b(x,y)=0, x^l-1=0, y^m-1=0 over F₂ algebraic closure.
     
-    ab_roots = []
+    Uses exact F₂ algebraic methods instead of complex approximations.
+    """
+    def format_poly_terms(poly_terms):
+        """Convert [[i,j], ...] format to polynomial string."""
+        if not poly_terms:
+            return "0"
+        terms = []
+        for i, j in poly_terms:
+            if i == 0 and j == 0:
+                terms.append("1")
+            elif i == 0:
+                terms.append(f"y^{j}" if j > 1 else "y")
+            elif j == 0:
+                terms.append(f"x^{i}" if i > 1 else "x")
+            else:
+                x_part = f"x^{i}" if i > 1 else "x"
+                y_part = f"y^{j}" if j > 1 else "y"
+                terms.append(f"{x_part}*{y_part}")
+        return " + ".join(terms)
     
-    for x, y in itertools.product(x_roots, y_roots):
-        # Evaluate polynomials at this point
-        a_val = evaluate_poly_2d(a_coeffs, x, y)
-        b_val = evaluate_poly_2d(b_coeffs, x, y)
+    a_poly_str = format_poly_terms(a_poly)
+    b_poly_str = format_poly_terms(b_poly)
+    
+    try:
+        # Solve the system a(x,y)=0, b(x,y)=0 with boundary conditions
+        result = solve_common_roots_multi_over_F2_with_BC(
+            poly_strs=[a_poly_str, b_poly_str],
+            var_names=["x", "y"],
+            m=l,  # x^l - 1 = 0
+            l=m,  # y^m - 1 = 0  
+            order="lex"
+        )
         
-        # Check if both a and b are close to zero (satisfying constraints)
-        if abs(a_val) < tolerance and abs(b_val) < tolerance:
-            ab_roots.append((x, y))
-    
-    return ab_roots
+        return {
+            'f2_analysis_successful': True,
+            'has_common_root': result.has_common_root_with_bc,
+            'groebner_basis_with_bc': result.groebner_basis_with_bc,
+            'groebner_basis_no_bc': result.groebner_basis_no_bc,
+            'univariate_eliminants': result.univariate_eliminants_no_bc,
+            'univariate_factors': result.univariate_factors_no_bc,
+            'triangular_assignments': result.triangular_assignments,
+            'gcd_diagnostics': {
+                'gcd_fx_xm1': result.gcd_fx_xm1,
+                'gcd_fy_yl1': result.gcd_fy_yl1
+            },
+            'a_polynomial': a_poly_str,
+            'b_polynomial': b_poly_str,
+            'boundary_conditions': result.bc_polys
+        }
+        
+    except Exception as e:
+        return {
+            'f2_analysis_successful': False,
+            'error': str(e),
+            'a_polynomial': a_poly_str,
+            'b_polynomial': b_poly_str
+        }
 
 
 def test_refined_root_hypothesis(a_poly=None, b_poly=None, l=None, m=None, variants=None):
@@ -279,16 +360,26 @@ def test_refined_root_hypothesis(a_poly=None, b_poly=None, l=None, m=None, varia
     print(f"Parameters: a_poly={a_poly}, b_poly={b_poly}, l={l}, m={m}")
     print()
     
-    # Convert a, b to coefficient arrays
-    a_coeffs = poly_to_coeffs_2d(a_poly, l, m)
-    b_coeffs = poly_to_coeffs_2d(b_poly, l, m)
+    # Analyze a, b system using F₂ algebraic methods
+    ab_f2_analysis = find_ab_roots_over_f2(a_poly, b_poly, l, m)
     
-    # Find roots where a=0, b=0 on unit circles
-    ab_roots = find_ab_roots_on_unit_circles(a_coeffs, b_coeffs, l, m)
-    
-    print(f"Found {len(ab_roots)} roots where a(x,y)=0, b(x,y)=0:")
-    for i, (x, y) in enumerate(ab_roots):
-        print(f"  Root {i+1}: x={x:.4f}, y={y:.4f}")
+    if ab_f2_analysis['f2_analysis_successful']:
+        has_ab_roots = ab_f2_analysis['has_common_root']
+        print(f"F₂ analysis of a(x,y)=0, b(x,y)=0 system:")
+        print(f"  a(x,y) = {ab_f2_analysis['a_polynomial']}")
+        print(f"  b(x,y) = {ab_f2_analysis['b_polynomial']}")
+        print(f"  Has common roots over F₂: {has_ab_roots}")
+        if ab_f2_analysis.get('triangular_assignments'):
+            print(f"  Triangular relations: {ab_f2_analysis['triangular_assignments']}")
+        if ab_f2_analysis.get('gcd_diagnostics'):
+            gcd = ab_f2_analysis['gcd_diagnostics']
+            if gcd.get('gcd_fx_xm1'):
+                print(f"  GCD(f_x, x^{l}+1) = {gcd['gcd_fx_xm1']}")
+            if gcd.get('gcd_fy_yl1'):
+                print(f"  GCD(f_y, y^{m}+1) = {gcd['gcd_fy_yl1']}")
+    else:
+        has_ab_roots = False
+        print(f"F₂ analysis failed: {ab_f2_analysis.get('error', 'unknown error')}")
     print()
     
     print("Comprehensive Analysis:")
@@ -333,31 +424,52 @@ def test_refined_root_hypothesis(a_poly=None, b_poly=None, l=None, m=None, varia
                 
         meta_params = f"[{n_meta},{k_meta},{d_meta}]"
         
-        # Evaluate c(x,y) at ab_roots
-        c_coeffs = poly_to_coeffs_2d(c_poly, l, m)
-        c_values = []
-        
-        for x, y in ab_roots:
-            c_val = evaluate_poly_2d(c_coeffs, x, y)
-            c_values.append(c_val)
-        
-        # Analyze c values pattern
-        if len(c_values) == 0:
-            c_indicator = "no ab_roots"
-            pattern = "N/A"
+        # Analyze c(x,y) constraint in the context of a,b system using F₂ methods
+        if has_ab_roots:
+            # If a,b system has roots, check if c(x,y) constraint is compatible
+            try:
+                # Analyze the full system: a(x,y)=0, b(x,y)=0, c(x,y)=0
+                def format_poly_terms(poly_terms):
+                    if not poly_terms:
+                        return "0"
+                    terms = []
+                    for i, j in poly_terms:
+                        if i == 0 and j == 0:
+                            terms.append("1")
+                        elif i == 0:
+                            terms.append(f"y^{j}" if j > 1 else "y")
+                        elif j == 0:
+                            terms.append(f"x^{i}" if i > 1 else "x")
+                        else:
+                            x_part = f"x^{i}" if i > 1 else "x"
+                            y_part = f"y^{j}" if j > 1 else "y"
+                            terms.append(f"{x_part}*{y_part}")
+                    return " + ".join(terms)
+                
+                c_poly_str = format_poly_terms(c_poly)
+                a_poly_str = format_poly_terms(a_poly)
+                b_poly_str = format_poly_terms(b_poly)
+                
+                # Check full system a=0, b=0, c=0
+                full_system = solve_common_roots_multi_over_F2_with_BC(
+                    poly_strs=[a_poly_str, b_poly_str, c_poly_str],
+                    var_names=["x", "y"],
+                    m=l, l=m, order="lex"
+                )
+                
+                if full_system.has_common_root_with_bc:
+                    c_indicator = "compatible"
+                    pattern = "c compatible with ab"
+                else:
+                    c_indicator = "incompatible" 
+                    pattern = "c blocks ab roots"
+                    
+            except Exception:
+                c_indicator = "analysis_failed"
+                pattern = "F₂ analysis error"
         else:
-            zero_count = sum(1 for val in c_values if abs(val) < 1e-10)
-            nonzero_count = len(c_values) - zero_count
-            
-            if zero_count == 0:
-                c_indicator = "all nonzero"
-                pattern = "c≠0 at all"
-            elif zero_count == len(c_values):
-                c_indicator = "all zero"
-                pattern = "c=0 at all"
-            else:
-                c_indicator = f"{zero_count}zero,{nonzero_count}nonzero"
-                pattern = "mixed"
+            c_indicator = "no_ab_roots"
+            pattern = "no ab common roots"
         
         results.append({
             'c_desc': c_desc,
@@ -395,17 +507,17 @@ def test_refined_root_hypothesis(a_poly=None, b_poly=None, l=None, m=None, varia
     for r in failed_k0:
         print(f"  {r['c_desc']:<20} -> {r['pattern']}")
     
-    # Pattern correlation
-    print(f"\nKey Pattern Correlations:")
-    nonzero_successful = sum(1 for r in successful_k6 if r['pattern'] == 'c≠0 at all')
-    mixed_higher_dim = sum(1 for r in successful_k12 if r['pattern'] == 'mixed')
+    # Pattern correlation with F₂ analysis
+    print(f"\nKey Pattern Correlations (F₂ Analysis):")
+    compatible_successful = sum(1 for r in successful_k6 if 'compatible' in r['pattern'])
+    incompatible_higher_dim = sum(1 for r in successful_k12 if 'blocks' in r['pattern'])
     
-    print(f"- K=6 codes with c≠0 pattern: {nonzero_successful}/{len(successful_k6)}")
-    print(f"- K=12 codes with mixed pattern: {mixed_higher_dim}/{len(successful_k12)}")
-    print(f"- All failed codes have c≠0 pattern (but lack proper x-y coupling)")
+    print(f"- K=6 codes with c compatible pattern: {compatible_successful}/{len(successful_k6)}")  
+    print(f"- K=12 codes with c incompatible pattern: {incompatible_higher_dim}/{len(successful_k12)}")
+    print(f"- F₂ algebraic analysis provides exact root relationships over finite fields")
     
     
-    return ab_roots, len(ab_roots), results
+    return ab_f2_analysis, has_ab_roots, results
 
 
 def run_multiple_experiments():
@@ -490,12 +602,104 @@ def get_experiment_configs():
             "name": "[[144,12,12]] 8x6",
             "a_poly": [[3, 0], [0, 1], [0, 2]],  # x^3 + y + y^2
             "b_poly": [[0, 3], [1, 0], [2, 0]],  # y^3 + x + x^2
-            "l": 9, "m": 3
+            "l": 6, "m": 12
         },
     ]
 
 
-def get_c_poly_variants():
+def generate_c_poly_variants_from_ab(a_poly: List[List[int]], b_poly: List[List[int]], 
+                                    l: int, m: int) -> List[Tuple[List[List[int]], str]]:
+    """Generate c polynomial variants using F₂ Gröbner basis analysis of a,b system.
+    
+    Args:
+        a_poly: A polynomial as [[i,j], ...] format
+        b_poly: B polynomial as [[i,j], ...] format  
+        l, m: Grid dimensions
+        
+    Returns:
+        List of (c_poly_terms, description) tuples
+    """
+    def format_poly_terms_to_string(poly_terms):
+        """Convert [[i,j], ...] format to string."""
+        if not poly_terms:
+            return "0"
+        terms = []
+        for i, j in poly_terms:
+            if i == 0 and j == 0:
+                terms.append("1")
+            elif i == 0:
+                terms.append(f"y^{j}" if j > 1 else "y")
+            elif j == 0:
+                terms.append(f"x^{i}" if i > 1 else "x")
+            else:
+                x_part = f"x^{i}" if i > 1 else "x"
+                y_part = f"y^{j}" if j > 1 else "y"
+                terms.append(f"{x_part}{y_part}")
+        return " + ".join(terms)
+    
+    def parse_sympy_to_poly_terms(sympy_expr):
+        """Convert SymPy expression back to [[i,j], ...] format."""
+        import sympy as sp
+        x, y = sp.symbols('x y')
+        
+        if sympy_expr == 0:
+            return []
+            
+        # Expand and collect terms
+        expanded = sp.expand(sympy_expr)
+        terms = []
+        
+        if hasattr(expanded, 'as_coefficients_dict'):
+            for monomial, coeff in expanded.as_coefficients_dict().items():
+                if coeff % 2 == 1:  # Only keep terms with odd coefficients (F₂)
+                    if monomial == 1:
+                        terms.append([0, 0])
+                    else:
+                        powers = monomial.as_powers_dict() if hasattr(monomial, 'as_powers_dict') else {monomial: 1}
+                        x_exp = powers.get(x, 0)
+                        y_exp = powers.get(y, 0)
+                        terms.append([x_exp, y_exp])
+        else:
+            # Handle single term case
+            if expanded == 1:
+                terms.append([0, 0])
+            elif expanded == x:
+                terms.append([1, 0])
+            elif expanded == y:
+                terms.append([0, 1])
+            # Add more cases as needed
+        
+        return terms
+    
+    # Convert to string format for all_c_variants_over_F2
+    a_str = format_poly_terms_to_string(a_poly)
+    b_str = format_poly_terms_to_string(b_poly)
+    
+    try:
+        # Generate c variants using F₂ Gröbner basis analysis
+        c_variants_dict = all_c_variants_over_F2(a_str, b_str, m=l, l=m)
+        
+        variants = []
+        for name, sympy_expr in c_variants_dict.items():
+            # Convert back to [[i,j], ...] format
+            poly_terms = parse_sympy_to_poly_terms(sympy_expr)
+            description = f"{name} ({sympy_expr})"
+            variants.append((poly_terms, description))
+            
+        # Add some standard variants if none were generated
+        if not variants:
+            print("  No variants generated from Gröbner analysis, using standard set")
+            variants = get_standard_c_poly_variants()
+            
+        return variants
+        
+    except Exception as e:
+        print(f"  Error generating F₂ variants: {e}")
+        print("  Falling back to standard variants")
+        return get_standard_c_poly_variants()
+
+
+def get_standard_c_poly_variants():
     """Get standard c_poly variants for testing."""
     return [
         ([[0, 0], [1, 1]], "1 + xy (original)"),
@@ -515,6 +719,10 @@ def get_c_poly_variants():
         ([[2, 0], [0, 2]], "x^2 + y^2"),
         ([[3, 0], [0, 3]], "x^3 + y^3")
     ]
+
+def get_c_poly_variants():
+    """Get standard c_poly variants for testing (backward compatibility)."""
+    return get_standard_c_poly_variants()
 
 
 if __name__ == "__main__":
