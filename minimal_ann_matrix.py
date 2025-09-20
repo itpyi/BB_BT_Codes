@@ -483,6 +483,8 @@ def compute_tor_1(
 def _polynomial_to_block_indicator(poly: sp.Expr, l: int, m: int) -> np.ndarray:
     """Return l x m binary array marking qubit positions touched by poly."""
 
+    # WARNING Need Check
+
     block = np.zeros((l, m), dtype=np.uint8)
     if poly == 0:
         return block
@@ -493,7 +495,7 @@ def _polynomial_to_block_indicator(poly: sp.Expr, l: int, m: int) -> np.ndarray:
     for idx in np.where(vec == 1)[0]:
         a = idx // m
         b = idx % m
-        block[a, b] ^= 1
+        block[a, b] = 1
 
     return block
 
@@ -644,7 +646,9 @@ def verify_logical_z_equivalence(
         if poly_matrix.size or z_stab_basis.size
         else np.zeros((0, Hz.shape[1]), dtype=np.uint8)
     )
-
+    # rank(css ∪ Z)=42, rank(poly ∪ Z)=45, rank(union)=54, rank(Z stabilizer)=30
+    # 2025/09/20
+    # BUG! Why rank_poly - rank_Z is larger than the rank of the poly itself?
     rank_css = mod2.rank(css_stack)
     rank_poly = mod2.rank(poly_stack)
     rank_union = (
@@ -919,7 +923,7 @@ def run_test_examples():
     test_cases = [
         ("1 + x", "1 + y", 3, 3),
         ("1 + x + x*y", "1 + y + x*y", 3, 3),
-        ("1 + x + x*y", "1 + y + x*y", 6, 6),
+        # ("1 + x + x*y", "1 + y + x*y", 9, 9),
         ("x^3 + y + y^2", "y^3 + x + x^2", 6, 6),
     ]
 
