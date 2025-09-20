@@ -1,0 +1,793 @@
+=== Running Test Examples ===
+
+--- Test Case 1: f=1 + x, g=1 + y, ring=GF(2)[x,y]/(x^3+1,y^3+1) ---
+=== Computing Ann(1 + x)/(g Ann(1 + x)) using Matrix Method ===
+Ring: GF(2)[x,y]/(x^3+1, y^3+1)
+
+Ring: GF(2)[x,y] with 9 monomials
+Boundary conditions: x^3 = 1, y^3 = 1
+f = x + 1
+g = y + 1
+
+=== Computing Ann(f) Matrix where f = x + 1 ===
+Built multiplication matrix M of size (9, 9)
+Matrix rank: 6
+Ann(f) matrix M_f shape: (3, 9)
+Ann(f) has 3 non-zero generators:
+  Ann(f)[0]: x**2 + x + 1
+  Ann(f)[1]: x**2*y + x*y + y
+  Ann(f)[2]: x**2*y**2 + x*y**2 + y**2
+
+=== Computing g*Ann(f) Matrix where g = y + 1 ===
+  g*Ann(f)[0]: (y + 1) * (x**2 + x + 1) = x**2*y + x**2 + x*y + x + y + 1
+  g*Ann(f)[1]: (y + 1) * (x**2*y + x*y + y) = x**2*y**2 + x**2*y + x*y**2 + x*y + y**2 + y
+  g*Ann(f)[2]: (y + 1) * (x**2*y**2 + x*y**2 + y**2) = x**2*y**3 + x**2*y**2 + x*y**3 + x*y**2 + y**3 + y**2
+g*Ann(f) matrix M_g shape: (3, 9)
+
+=== Computing Quotient M_f/M_g using Gaussian elimination ===
+M_f shape: (3, 9)
+M_g shape: (3, 9)
+Rank of M_g: 2
+  Quotient[0]: x**2 + x + 1 (independent)
+  Skipping M_f[1]: x**2*y + x*y + y (dependent on M_g)
+  Skipping M_f[2]: x**2*y**2 + x*y**2 + y**2 (dependent on M_g)
+Final quotient matrix shape: (1, 9)
+Quotient dimension: 1
+
+=== Final Result ===
+Dimension of Ann(1 + x)/(g Ann(1 + x)): 1
+Quotient basis:
+  QuotientBasis[0]: x**2 + x + 1
+=== Computing Ann(1 + y)/(g Ann(1 + y)) using Matrix Method ===
+Ring: GF(2)[x,y]/(x^3+1, y^3+1)
+
+Ring: GF(2)[x,y] with 9 monomials
+Boundary conditions: x^3 = 1, y^3 = 1
+f = y + 1
+g = x + 1
+
+=== Computing Ann(f) Matrix where f = y + 1 ===
+Built multiplication matrix M of size (9, 9)
+Matrix rank: 6
+Ann(f) matrix M_f shape: (3, 9)
+Ann(f) has 3 non-zero generators:
+  Ann(f)[0]: y**2 + y + 1
+  Ann(f)[1]: x*y**2 + x*y + x
+  Ann(f)[2]: x**2*y**2 + x**2*y + x**2
+
+=== Computing g*Ann(f) Matrix where g = x + 1 ===
+  g*Ann(f)[0]: (x + 1) * (y**2 + y + 1) = x*y**2 + x*y + x + y**2 + y + 1
+  g*Ann(f)[1]: (x + 1) * (x*y**2 + x*y + x) = x**2*y**2 + x**2*y + x**2 + x*y**2 + x*y + x
+  g*Ann(f)[2]: (x + 1) * (x**2*y**2 + x**2*y + x**2) = x**3*y**2 + x**3*y + x**3 + x**2*y**2 + x**2*y + x**2
+g*Ann(f) matrix M_g shape: (3, 9)
+
+=== Computing Quotient M_f/M_g using Gaussian elimination ===
+M_f shape: (3, 9)
+M_g shape: (3, 9)
+Rank of M_g: 2
+  Quotient[0]: y**2 + y + 1 (independent)
+  Skipping M_f[1]: x*y**2 + x*y + x (dependent on M_g)
+  Skipping M_f[2]: x**2*y**2 + x**2*y + x**2 (dependent on M_g)
+Final quotient matrix shape: (1, 9)
+Quotient dimension: 1
+
+=== Final Result ===
+Dimension of Ann(1 + y)/(g Ann(1 + y)): 1
+Quotient basis:
+  QuotientBasis[0]: y**2 + y + 1
+Logical Z operators on block 1 (Ann(f)/(g Ann(f))):
+  index 0, poly x**2 + x + 1
+    tensor= [[[1, 0, 0],
+  [1, 0, 0],
+  [1, 0, 0]],
+
+ [[0, 0, 0],
+  [0, 0, 0],
+  [0, 0, 0]]]
+    vector= [1 0 0 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0]
+Logical Z operators on block 2 (Ann(g)/(f Ann(g))):
+  index 0, poly y**2 + y + 1
+    tensor= [[[0, 0, 0],
+  [0, 0, 0],
+  [0, 0, 0]],
+
+ [[1, 1, 1],
+  [0, 0, 0],
+  [0, 0, 0]]]
+    vector= [0 0 0 0 0 0 0 0 0 1 1 1 0 0 0 0 0 0]
+Logical Z torsion operators (Tor_1):
+Logical operator rank check: rank=2 count=2 independent=True
+Stacked logical Z matrix shape: (2, 18)
+[[1 0 0 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0]
+ [0 0 0 0 0 0 0 0 0 1 1 1 0 0 0 0 0 0]]
+
+=== Debug Info ===
+np.shape(poly_matrix): (2, 18)
+np.shape(poly_stack): (10, 18)
+=== End Debug Info ===
+
+Polynomial ↔ css_code logical Z matches: 2; unmatched polynomial (pairwise)=0; unmatched css (pairwise)=0
+  rank(css ∪ Z)=10, rank(poly ∪ Z)=10, rank(union)=10, rank(Z stabilizer)=8
+Z stabilizer basis (each row is a binary array):
+  stabilizer_z[0] = [1 0 1 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0]
+  stabilizer_z[1] = [1 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0]
+  stabilizer_z[2] = [0 1 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1]
+  stabilizer_z[3] = [0 0 0 1 0 1 0 0 0 1 0 0 1 0 0 0 0 0]
+  stabilizer_z[4] = [0 0 0 1 1 0 0 0 0 0 1 0 0 1 0 0 0 0]
+  stabilizer_z[5] = [0 0 0 0 1 1 0 0 0 0 0 1 0 0 1 0 0 0]
+  stabilizer_z[6] = [0 0 0 0 0 0 1 0 1 0 0 0 1 0 0 1 0 0]
+  stabilizer_z[7] = [0 0 0 0 0 0 1 1 0 0 0 0 0 1 0 0 1 0]
+CSS logical Z expressed via polynomial logicals and Z stabilizers:
+  css_logical_z[0] = poly_logical[0] + stabilizer_z[0] + stabilizer_z[3] + stabilizer_z[6]
+  css_logical_z[1] = poly_logical[1]
+Polynomial logical Z expressed via css_code logicals and Z stabilizers:
+  poly_logical[0] = css_logical_z[0] + stabilizer_z[0] + stabilizer_z[3] + stabilizer_z[6]
+  poly_logical[1] = css_logical_z[1]
+--------------------------------------------------------------------------------
+
+--- Test Case 2: f=1 + x + x*y, g=1 + y + x*y, ring=GF(2)[x,y]/(x^3+1,y^3+1) ---
+=== Computing Ann(1 + x + x*y)/(g Ann(1 + x + x*y)) using Matrix Method ===
+Ring: GF(2)[x,y]/(x^3+1, y^3+1)
+
+Ring: GF(2)[x,y] with 9 monomials
+Boundary conditions: x^3 = 1, y^3 = 1
+f = x*y + x + 1
+g = x*y + y + 1
+
+=== Computing Ann(f) Matrix where f = x*y + x + 1 ===
+Built multiplication matrix M of size (9, 9)
+Matrix rank: 7
+Ann(f) matrix M_f shape: (2, 9)
+Ann(f) has 2 non-zero generators:
+  Ann(f)[0]: x**2*y + x**2 + x*y**2 + x*y + y**2 + 1
+  Ann(f)[1]: x**2*y**2 + x**2 + x*y + x + y**2 + y
+
+=== Computing g*Ann(f) Matrix where g = x*y + y + 1 ===
+  g*Ann(f)[0]: (x*y + y + 1) * (x**2*y + x**2 + x*y**2 + x*y + y**2 + 1) = x**3*y**2 + x**3*y + x**2*y**3 + 2*x**2*y**2 + 2*x**2*y + x**2 + 2*x*y**3 + 2*x*y**2 + 2*x*y + y**3 + y**2 + y + 1
+  g*Ann(f)[1]: (x*y + y + 1) * (x**2*y**2 + x**2 + x*y + x + y**2 + y) = x**3*y**3 + x**3*y + x**2*y**3 + 2*x**2*y**2 + 2*x**2*y + x**2 + x*y**3 + 2*x*y**2 + 2*x*y + x + y**3 + 2*y**2 + y
+g*Ann(f) matrix M_g shape: (2, 9)
+
+=== Computing Quotient M_f/M_g using Gaussian elimination ===
+M_f shape: (2, 9)
+M_g shape: (2, 9)
+Rank of M_g: 0
+  Quotient[0]: x**2*y + x**2 + x*y**2 + x*y + y**2 + 1 (independent)
+  Quotient[1]: x**2*y**2 + x**2 + x*y + x + y**2 + y (independent)
+Final quotient matrix shape: (2, 9)
+Quotient dimension: 2
+
+=== Final Result ===
+Dimension of Ann(1 + x + x*y)/(g Ann(1 + x + x*y)): 2
+Quotient basis:
+  QuotientBasis[0]: x**2*y + x**2 + x*y**2 + x*y + y**2 + 1
+  QuotientBasis[1]: x**2*y**2 + x**2 + x*y + x + y**2 + y
+=== Computing Ann(1 + y + x*y)/(g Ann(1 + y + x*y)) using Matrix Method ===
+Ring: GF(2)[x,y]/(x^3+1, y^3+1)
+
+Ring: GF(2)[x,y] with 9 monomials
+Boundary conditions: x^3 = 1, y^3 = 1
+f = x*y + y + 1
+g = x*y + x + 1
+
+=== Computing Ann(f) Matrix where f = x*y + y + 1 ===
+Built multiplication matrix M of size (9, 9)
+Matrix rank: 7
+Ann(f) matrix M_f shape: (2, 9)
+Ann(f) has 2 non-zero generators:
+  Ann(f)[0]: x**2*y + x**2 + x*y**2 + x*y + y**2 + 1
+  Ann(f)[1]: x**2*y**2 + x**2 + x*y + x + y**2 + y
+
+=== Computing g*Ann(f) Matrix where g = x*y + x + 1 ===
+  g*Ann(f)[0]: (x*y + x + 1) * (x**2*y + x**2 + x*y**2 + x*y + y**2 + 1) = x**3*y**2 + 2*x**3*y + x**3 + x**2*y**3 + 2*x**2*y**2 + 2*x**2*y + x**2 + x*y**3 + 2*x*y**2 + 2*x*y + x + y**2 + 1
+  g*Ann(f)[1]: (x*y + x + 1) * (x**2*y**2 + x**2 + x*y + x + y**2 + y) = x**3*y**3 + x**3*y**2 + x**3*y + x**3 + 2*x**2*y**2 + 2*x**2*y + 2*x**2 + x*y**3 + 2*x*y**2 + 2*x*y + x + y**2 + y
+g*Ann(f) matrix M_g shape: (2, 9)
+
+=== Computing Quotient M_f/M_g using Gaussian elimination ===
+M_f shape: (2, 9)
+M_g shape: (2, 9)
+Rank of M_g: 0
+  Quotient[0]: x**2*y + x**2 + x*y**2 + x*y + y**2 + 1 (independent)
+  Quotient[1]: x**2*y**2 + x**2 + x*y + x + y**2 + y (independent)
+Final quotient matrix shape: (2, 9)
+Quotient dimension: 2
+
+=== Final Result ===
+Dimension of Ann(1 + y + x*y)/(g Ann(1 + y + x*y)): 2
+Quotient basis:
+  QuotientBasis[0]: x**2*y + x**2 + x*y**2 + x*y + y**2 + 1
+  QuotientBasis[1]: x**2*y**2 + x**2 + x*y + x + y**2 + y
+Logical Z operators on block 1 (Ann(f)/(g Ann(f))):
+  index 0, poly x**2*y + x**2 + x*y**2 + x*y + y**2 + 1
+    tensor= [[[1, 0, 1],
+  [0, 1, 1],
+  [1, 1, 0]],
+
+ [[0, 0, 0],
+  [0, 0, 0],
+  [0, 0, 0]]]
+    vector= [1 0 1 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0]
+  index 1, poly x**2*y**2 + x**2 + x*y + x + y**2 + y
+    tensor= [[[0, 1, 1],
+  [1, 1, 0],
+  [1, 0, 1]],
+
+ [[0, 0, 0],
+  [0, 0, 0],
+  [0, 0, 0]]]
+    vector= [0 1 1 1 1 0 1 0 1 0 0 0 0 0 0 0 0 0]
+Logical Z operators on block 2 (Ann(g)/(f Ann(g))):
+  index 0, poly x**2*y + x**2 + x*y**2 + x*y + y**2 + 1
+    tensor= [[[0, 0, 0],
+  [0, 0, 0],
+  [0, 0, 0]],
+
+ [[1, 0, 1],
+  [0, 1, 1],
+  [1, 1, 0]]]
+    vector= [0 0 0 0 0 0 0 0 0 1 0 1 0 1 1 1 1 0]
+  index 1, poly x**2*y**2 + x**2 + x*y + x + y**2 + y
+    tensor= [[[0, 0, 0],
+  [0, 0, 0],
+  [0, 0, 0]],
+
+ [[0, 1, 1],
+  [1, 1, 0],
+  [1, 0, 1]]]
+    vector= [0 0 0 0 0 0 0 0 0 0 1 1 1 1 0 1 0 1]
+Logical Z torsion operators (Tor_1):
+Logical operator rank check: rank=4 count=4 independent=True
+Stacked logical Z matrix shape: (4, 18)
+[[1 0 1 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0]
+ [0 1 1 1 1 0 1 0 1 0 0 0 0 0 0 0 0 0]
+ [0 0 0 0 0 0 0 0 0 1 0 1 0 1 1 1 1 0]
+ [0 0 0 0 0 0 0 0 0 0 1 1 1 1 0 1 0 1]]
+
+=== Debug Info ===
+np.shape(poly_matrix): (4, 18)
+np.shape(poly_stack): (11, 18)
+=== End Debug Info ===
+
+Polynomial ↔ css_code logical Z matches: 3; unmatched polynomial (pairwise)=1; unmatched css (pairwise)=1
+  rank(css ∪ Z)=11, rank(poly ∪ Z)=11, rank(union)=11, rank(Z stabilizer)=7
+Z stabilizer basis (each row is a binary array):
+  stabilizer_z[0] = [1 0 1 0 0 0 0 0 1 1 0 0 0 0 0 1 0 1]
+  stabilizer_z[1] = [1 1 0 0 0 0 1 0 0 0 1 0 0 0 0 1 1 0]
+  stabilizer_z[2] = [0 1 1 0 0 0 0 1 0 0 0 1 0 0 0 0 1 1]
+  stabilizer_z[3] = [0 0 1 1 0 1 0 0 0 1 0 1 1 0 0 0 0 0]
+  stabilizer_z[4] = [1 0 0 1 1 0 0 0 0 1 1 0 0 1 0 0 0 0]
+  stabilizer_z[5] = [0 1 0 0 1 1 0 0 0 0 1 1 0 0 1 0 0 0]
+  stabilizer_z[6] = [0 0 0 0 0 1 1 0 1 0 0 0 1 0 1 1 0 0]
+CSS logical Z expressed via polynomial logicals and Z stabilizers:
+  css_logical_z[0] = poly_logical[0]
+  css_logical_z[1] = poly_logical[1]
+  css_logical_z[2] = poly_logical[1] + poly_logical[3] + stabilizer_z[0] + stabilizer_z[3] + stabilizer_z[4]
+  css_logical_z[3] = poly_logical[2] + stabilizer_z[1] + stabilizer_z[4] + stabilizer_z[5]
+Polynomial logical Z expressed via css_code logicals and Z stabilizers:
+  poly_logical[0] = css_logical_z[0]
+  poly_logical[1] = css_logical_z[1]
+  poly_logical[2] = css_logical_z[3] + stabilizer_z[1] + stabilizer_z[4] + stabilizer_z[5]
+  poly_logical[3] = css_logical_z[1] + css_logical_z[2] + stabilizer_z[0] + stabilizer_z[3] + stabilizer_z[4]
+--------------------------------------------------------------------------------
+
+--- Test Case 3: f=x^3 + y + y^2, g=y^3 + x + x^2, ring=GF(2)[x,y]/(x^6+1,y^6+1) ---
+=== Computing Ann(x^3 + y + y^2)/(g Ann(x^3 + y + y^2)) using Matrix Method ===
+Ring: GF(2)[x,y]/(x^6+1, y^6+1)
+
+Ring: GF(2)[x,y] with 36 monomials
+Boundary conditions: x^6 = 1, y^6 = 1
+f = x**3 + y**2 + y
+g = x**2 + x + y**3
+
+=== Computing Ann(f) Matrix where f = x**3 + y**2 + y ===
+Built multiplication matrix M of size (36, 36)
+Matrix rank: 24
+Ann(f) matrix M_f shape: (12, 36)
+Ann(f) has 12 non-zero generators:
+  Ann(f)[0]: x**3*y**2 + x**3 + y**4 + y**3 + y**2 + y
+  Ann(f)[1]: x**3*y**3 + x**3*y + y**5 + y**4 + y**3 + y**2
+  Ann(f)[2]: x**4*y**2 + x**4 + x*y**4 + x*y**3 + x*y**2 + x*y
+  Ann(f)[3]: x**4*y**3 + x**4*y + x*y**5 + x*y**4 + x*y**3 + x*y**2
+  Ann(f)[4]: x**4*y**4 + x**4 + x*y**5 + x*y**2 + x*y + x
+  Ann(f)[5]: x**4*y**5 + x**4*y + x*y**3 + x*y**2 + x*y + x
+  Ann(f)[6]: x**3*y**4 + x**3 + y**5 + y**2 + y + 1
+  Ann(f)[7]: x**3*y**5 + x**3*y + y**3 + y**2 + y + 1
+  Ann(f)[8]: x**5*y**2 + x**5 + x**2*y**4 + x**2*y**3 + x**2*y**2 + x**2*y
+  Ann(f)[9]: x**5*y**3 + x**5*y + x**2*y**5 + x**2*y**4 + x**2*y**3 + x**2*y**2
+  Ann(f)[10]: x**5*y**4 + x**5 + x**2*y**5 + x**2*y**2 + x**2*y + x**2
+  Ann(f)[11]: x**5*y**5 + x**5*y + x**2*y**3 + x**2*y**2 + x**2*y + x**2
+
+=== Computing g*Ann(f) Matrix where g = x**2 + x + y**3 ===
+  g*Ann(f)[0]: (x**2 + x + y**3) * (x**3*y**2 + x**3 + y**4 + y**3 + y**2 + y) = x**5*y**2 + x**5 + x**4*y**2 + x**4 + x**3*y**5 + x**3*y**3 + x**2*y**4 + x**2*y**3 + x**2*y**2 + x**2*y + x*y**4 + x*y**3 + x*y**2 + x*y + y**7 + y**6 + y**5 + y**4
+  g*Ann(f)[1]: (x**2 + x + y**3) * (x**3*y**3 + x**3*y + y**5 + y**4 + y**3 + y**2) = x**5*y**3 + x**5*y + x**4*y**3 + x**4*y + x**3*y**6 + x**3*y**4 + x**2*y**5 + x**2*y**4 + x**2*y**3 + x**2*y**2 + x*y**5 + x*y**4 + x*y**3 + x*y**2 + y**8 + y**7 + y**6 + y**5
+  g*Ann(f)[2]: (x**2 + x + y**3) * (x**4*y**2 + x**4 + x*y**4 + x*y**3 + x*y**2 + x*y) = x**6*y**2 + x**6 + x**5*y**2 + x**5 + x**4*y**5 + x**4*y**3 + x**3*y**4 + x**3*y**3 + x**3*y**2 + x**3*y + x**2*y**4 + x**2*y**3 + x**2*y**2 + x**2*y + x*y**7 + x*y**6 + x*y**5 + x*y**4
+  g*Ann(f)[3]: (x**2 + x + y**3) * (x**4*y**3 + x**4*y + x*y**5 + x*y**4 + x*y**3 + x*y**2) = x**6*y**3 + x**6*y + x**5*y**3 + x**5*y + x**4*y**6 + x**4*y**4 + x**3*y**5 + x**3*y**4 + x**3*y**3 + x**3*y**2 + x**2*y**5 + x**2*y**4 + x**2*y**3 + x**2*y**2 + x*y**8 + x*y**7 + x*y**6 + x*y**5
+  g*Ann(f)[4]: (x**2 + x + y**3) * (x**4*y**4 + x**4 + x*y**5 + x*y**2 + x*y + x) = x**6*y**4 + x**6 + x**5*y**4 + x**5 + x**4*y**7 + x**4*y**3 + x**3*y**5 + x**3*y**2 + x**3*y + x**3 + x**2*y**5 + x**2*y**2 + x**2*y + x**2 + x*y**8 + x*y**5 + x*y**4 + x*y**3
+  g*Ann(f)[5]: (x**2 + x + y**3) * (x**4*y**5 + x**4*y + x*y**3 + x*y**2 + x*y + x) = x**6*y**5 + x**6*y + x**5*y**5 + x**5*y + x**4*y**8 + x**4*y**4 + x**3*y**3 + x**3*y**2 + x**3*y + x**3 + x**2*y**3 + x**2*y**2 + x**2*y + x**2 + x*y**6 + x*y**5 + x*y**4 + x*y**3
+  g*Ann(f)[6]: (x**2 + x + y**3) * (x**3*y**4 + x**3 + y**5 + y**2 + y + 1) = x**5*y**4 + x**5 + x**4*y**4 + x**4 + x**3*y**7 + x**3*y**3 + x**2*y**5 + x**2*y**2 + x**2*y + x**2 + x*y**5 + x*y**2 + x*y + x + y**8 + y**5 + y**4 + y**3
+  g*Ann(f)[7]: (x**2 + x + y**3) * (x**3*y**5 + x**3*y + y**3 + y**2 + y + 1) = x**5*y**5 + x**5*y + x**4*y**5 + x**4*y + x**3*y**8 + x**3*y**4 + x**2*y**3 + x**2*y**2 + x**2*y + x**2 + x*y**3 + x*y**2 + x*y + x + y**6 + y**5 + y**4 + y**3
+  g*Ann(f)[8]: (x**2 + x + y**3) * (x**5*y**2 + x**5 + x**2*y**4 + x**2*y**3 + x**2*y**2 + x**2*y) = x**7*y**2 + x**7 + x**6*y**2 + x**6 + x**5*y**5 + x**5*y**3 + x**4*y**4 + x**4*y**3 + x**4*y**2 + x**4*y + x**3*y**4 + x**3*y**3 + x**3*y**2 + x**3*y + x**2*y**7 + x**2*y**6 + x**2*y**5 + x**2*y**4
+  g*Ann(f)[9]: (x**2 + x + y**3) * (x**5*y**3 + x**5*y + x**2*y**5 + x**2*y**4 + x**2*y**3 + x**2*y**2) = x**7*y**3 + x**7*y + x**6*y**3 + x**6*y + x**5*y**6 + x**5*y**4 + x**4*y**5 + x**4*y**4 + x**4*y**3 + x**4*y**2 + x**3*y**5 + x**3*y**4 + x**3*y**3 + x**3*y**2 + x**2*y**8 + x**2*y**7 + x**2*y**6 + x**2*y**5
+  g*Ann(f)[10]: (x**2 + x + y**3) * (x**5*y**4 + x**5 + x**2*y**5 + x**2*y**2 + x**2*y + x**2) = x**7*y**4 + x**7 + x**6*y**4 + x**6 + x**5*y**7 + x**5*y**3 + x**4*y**5 + x**4*y**2 + x**4*y + x**4 + x**3*y**5 + x**3*y**2 + x**3*y + x**3 + x**2*y**8 + x**2*y**5 + x**2*y**4 + x**2*y**3
+  g*Ann(f)[11]: (x**2 + x + y**3) * (x**5*y**5 + x**5*y + x**2*y**3 + x**2*y**2 + x**2*y + x**2) = x**7*y**5 + x**7*y + x**6*y**5 + x**6*y + x**5*y**8 + x**5*y**4 + x**4*y**3 + x**4*y**2 + x**4*y + x**4 + x**3*y**3 + x**3*y**2 + x**3*y + x**3 + x**2*y**6 + x**2*y**5 + x**2*y**4 + x**2*y**3
+g*Ann(f) matrix M_g shape: (12, 36)
+
+=== Computing Quotient M_f/M_g using Gaussian elimination ===
+M_f shape: (12, 36)
+M_g shape: (12, 36)
+Rank of M_g: 6
+  Quotient[0]: x**3*y**2 + x**3 + y**4 + y**3 + y**2 + y (independent)
+  Quotient[1]: x**3*y**3 + x**3*y + y**5 + y**4 + y**3 + y**2 (independent)
+  Quotient[2]: x**4*y**2 + x**4 + x*y**4 + x*y**3 + x*y**2 + x*y (independent)
+  Quotient[3]: x**4*y**3 + x**4*y + x*y**5 + x*y**4 + x*y**3 + x*y**2 (independent)
+  Quotient[4]: x**4*y**4 + x**4 + x*y**5 + x*y**2 + x*y + x (independent)
+  Quotient[5]: x**4*y**5 + x**4*y + x*y**3 + x*y**2 + x*y + x (independent)
+  Skipping M_f[6]: x**3*y**4 + x**3 + y**5 + y**2 + y + 1 (dependent on M_g)
+  Skipping M_f[7]: x**3*y**5 + x**3*y + y**3 + y**2 + y + 1 (dependent on M_g)
+  Skipping M_f[8]: x**5*y**2 + x**5 + x**2*y**4 + x**2*y**3 + x**2*y**2 + x**2*y (dependent on M_g)
+  Skipping M_f[9]: x**5*y**3 + x**5*y + x**2*y**5 + x**2*y**4 + x**2*y**3 + x**2*y**2 (dependent on M_g)
+  Skipping M_f[10]: x**5*y**4 + x**5 + x**2*y**5 + x**2*y**2 + x**2*y + x**2 (dependent on M_g)
+  Skipping M_f[11]: x**5*y**5 + x**5*y + x**2*y**3 + x**2*y**2 + x**2*y + x**2 (dependent on M_g)
+Final quotient matrix shape: (6, 36)
+Quotient dimension: 6
+
+=== Final Result ===
+Dimension of Ann(x^3 + y + y^2)/(g Ann(x^3 + y + y^2)): 6
+Quotient basis:
+  QuotientBasis[0]: x**3*y**2 + x**3 + y**4 + y**3 + y**2 + y
+  QuotientBasis[1]: x**3*y**3 + x**3*y + y**5 + y**4 + y**3 + y**2
+  QuotientBasis[2]: x**4*y**2 + x**4 + x*y**4 + x*y**3 + x*y**2 + x*y
+  QuotientBasis[3]: x**4*y**3 + x**4*y + x*y**5 + x*y**4 + x*y**3 + x*y**2
+  QuotientBasis[4]: x**4*y**4 + x**4 + x*y**5 + x*y**2 + x*y + x
+  QuotientBasis[5]: x**4*y**5 + x**4*y + x*y**3 + x*y**2 + x*y + x
+=== Computing Ann(y^3 + x + x^2)/(g Ann(y^3 + x + x^2)) using Matrix Method ===
+Ring: GF(2)[x,y]/(x^6+1, y^6+1)
+
+Ring: GF(2)[x,y] with 36 monomials
+Boundary conditions: x^6 = 1, y^6 = 1
+f = x**2 + x + y**3
+g = x**3 + y**2 + y
+
+=== Computing Ann(f) Matrix where f = x**2 + x + y**3 ===
+Built multiplication matrix M of size (36, 36)
+Matrix rank: 24
+Ann(f) matrix M_f shape: (12, 36)
+Ann(f) has 12 non-zero generators:
+  Ann(f)[0]: x**4 + x**3 + x**2*y**3 + x**2 + x + y**3
+  Ann(f)[1]: x**4*y + x**3*y + x**2*y**4 + x**2*y + x*y + y**4
+  Ann(f)[2]: x**4*y**2 + x**3*y**2 + x**2*y**5 + x**2*y**2 + x*y**2 + y**5
+  Ann(f)[3]: x**4*y**3 + x**3*y**3 + x**2*y**3 + x**2 + x*y**3 + 1
+  Ann(f)[4]: x**4*y**4 + x**3*y**4 + x**2*y**4 + x**2*y + x*y**4 + y
+  Ann(f)[5]: x**4*y**5 + x**3*y**5 + x**2*y**5 + x**2*y**2 + x*y**5 + y**2
+  Ann(f)[6]: x**5 + x**3*y**3 + x**2*y**3 + x*y**3 + x + y**3
+  Ann(f)[7]: x**5*y + x**3*y**4 + x**2*y**4 + x*y**4 + x*y + y**4
+  Ann(f)[8]: x**5*y**2 + x**3*y**5 + x**2*y**5 + x*y**5 + x*y**2 + y**5
+  Ann(f)[9]: x**5*y**3 + x**3 + x**2 + x*y**3 + x + 1
+  Ann(f)[10]: x**5*y**4 + x**3*y + x**2*y + x*y**4 + x*y + y
+  Ann(f)[11]: x**5*y**5 + x**3*y**2 + x**2*y**2 + x*y**5 + x*y**2 + y**2
+
+=== Computing g*Ann(f) Matrix where g = x**3 + y**2 + y ===
+  g*Ann(f)[0]: (x**3 + y**2 + y) * (x**4 + x**3 + x**2*y**3 + x**2 + x + y**3) = x**7 + x**6 + x**5*y**3 + x**5 + x**4*y**2 + x**4*y + x**4 + x**3*y**3 + x**3*y**2 + x**3*y + x**2*y**5 + x**2*y**4 + x**2*y**2 + x**2*y + x*y**2 + x*y + y**5 + y**4
+  g*Ann(f)[1]: (x**3 + y**2 + y) * (x**4*y + x**3*y + x**2*y**4 + x**2*y + x*y + y**4) = x**7*y + x**6*y + x**5*y**4 + x**5*y + x**4*y**3 + x**4*y**2 + x**4*y + x**3*y**4 + x**3*y**3 + x**3*y**2 + x**2*y**6 + x**2*y**5 + x**2*y**3 + x**2*y**2 + x*y**3 + x*y**2 + y**6 + y**5
+  g*Ann(f)[2]: (x**3 + y**2 + y) * (x**4*y**2 + x**3*y**2 + x**2*y**5 + x**2*y**2 + x*y**2 + y**5) = x**7*y**2 + x**6*y**2 + x**5*y**5 + x**5*y**2 + x**4*y**4 + x**4*y**3 + x**4*y**2 + x**3*y**5 + x**3*y**4 + x**3*y**3 + x**2*y**7 + x**2*y**6 + x**2*y**4 + x**2*y**3 + x*y**4 + x*y**3 + y**7 + y**6
+  g*Ann(f)[3]: (x**3 + y**2 + y) * (x**4*y**3 + x**3*y**3 + x**2*y**3 + x**2 + x*y**3 + 1) = x**7*y**3 + x**6*y**3 + x**5*y**3 + x**5 + x**4*y**5 + x**4*y**4 + x**4*y**3 + x**3*y**5 + x**3*y**4 + x**3 + x**2*y**5 + x**2*y**4 + x**2*y**2 + x**2*y + x*y**5 + x*y**4 + y**2 + y
+  g*Ann(f)[4]: (x**3 + y**2 + y) * (x**4*y**4 + x**3*y**4 + x**2*y**4 + x**2*y + x*y**4 + y) = x**7*y**4 + x**6*y**4 + x**5*y**4 + x**5*y + x**4*y**6 + x**4*y**5 + x**4*y**4 + x**3*y**6 + x**3*y**5 + x**3*y + x**2*y**6 + x**2*y**5 + x**2*y**3 + x**2*y**2 + x*y**6 + x*y**5 + y**3 + y**2
+  g*Ann(f)[5]: (x**3 + y**2 + y) * (x**4*y**5 + x**3*y**5 + x**2*y**5 + x**2*y**2 + x*y**5 + y**2) = x**7*y**5 + x**6*y**5 + x**5*y**5 + x**5*y**2 + x**4*y**7 + x**4*y**6 + x**4*y**5 + x**3*y**7 + x**3*y**6 + x**3*y**2 + x**2*y**7 + x**2*y**6 + x**2*y**4 + x**2*y**3 + x*y**7 + x*y**6 + y**4 + y**3
+  g*Ann(f)[6]: (x**3 + y**2 + y) * (x**5 + x**3*y**3 + x**2*y**3 + x*y**3 + x + y**3) = x**8 + x**6*y**3 + x**5*y**3 + x**5*y**2 + x**5*y + x**4*y**3 + x**4 + x**3*y**5 + x**3*y**4 + x**3*y**3 + x**2*y**5 + x**2*y**4 + x*y**5 + x*y**4 + x*y**2 + x*y + y**5 + y**4
+  g*Ann(f)[7]: (x**3 + y**2 + y) * (x**5*y + x**3*y**4 + x**2*y**4 + x*y**4 + x*y + y**4) = x**8*y + x**6*y**4 + x**5*y**4 + x**5*y**3 + x**5*y**2 + x**4*y**4 + x**4*y + x**3*y**6 + x**3*y**5 + x**3*y**4 + x**2*y**6 + x**2*y**5 + x*y**6 + x*y**5 + x*y**3 + x*y**2 + y**6 + y**5
+  g*Ann(f)[8]: (x**3 + y**2 + y) * (x**5*y**2 + x**3*y**5 + x**2*y**5 + x*y**5 + x*y**2 + y**5) = x**8*y**2 + x**6*y**5 + x**5*y**5 + x**5*y**4 + x**5*y**3 + x**4*y**5 + x**4*y**2 + x**3*y**7 + x**3*y**6 + x**3*y**5 + x**2*y**7 + x**2*y**6 + x*y**7 + x*y**6 + x*y**4 + x*y**3 + y**7 + y**6
+  g*Ann(f)[9]: (x**3 + y**2 + y) * (x**5*y**3 + x**3 + x**2 + x*y**3 + x + 1) = x**8*y**3 + x**6 + x**5*y**5 + x**5*y**4 + x**5 + x**4*y**3 + x**4 + x**3*y**2 + x**3*y + x**3 + x**2*y**2 + x**2*y + x*y**5 + x*y**4 + x*y**2 + x*y + y**2 + y
+  g*Ann(f)[10]: (x**3 + y**2 + y) * (x**5*y**4 + x**3*y + x**2*y + x*y**4 + x*y + y) = x**8*y**4 + x**6*y + x**5*y**6 + x**5*y**5 + x**5*y + x**4*y**4 + x**4*y + x**3*y**3 + x**3*y**2 + x**3*y + x**2*y**3 + x**2*y**2 + x*y**6 + x*y**5 + x*y**3 + x*y**2 + y**3 + y**2
+  g*Ann(f)[11]: (x**3 + y**2 + y) * (x**5*y**5 + x**3*y**2 + x**2*y**2 + x*y**5 + x*y**2 + y**2) = x**8*y**5 + x**6*y**2 + x**5*y**7 + x**5*y**6 + x**5*y**2 + x**4*y**5 + x**4*y**2 + x**3*y**4 + x**3*y**3 + x**3*y**2 + x**2*y**4 + x**2*y**3 + x*y**7 + x*y**6 + x*y**4 + x*y**3 + y**4 + y**3
+g*Ann(f) matrix M_g shape: (12, 36)
+
+=== Computing Quotient M_f/M_g using Gaussian elimination ===
+M_f shape: (12, 36)
+M_g shape: (12, 36)
+Rank of M_g: 6
+  Quotient[0]: x**4 + x**3 + x**2*y**3 + x**2 + x + y**3 (independent)
+  Quotient[1]: x**4*y + x**3*y + x**2*y**4 + x**2*y + x*y + y**4 (independent)
+  Quotient[2]: x**4*y**2 + x**3*y**2 + x**2*y**5 + x**2*y**2 + x*y**2 + y**5 (independent)
+  Quotient[3]: x**4*y**3 + x**3*y**3 + x**2*y**3 + x**2 + x*y**3 + 1 (independent)
+  Skipping M_f[4]: x**4*y**4 + x**3*y**4 + x**2*y**4 + x**2*y + x*y**4 + y (dependent on M_g)
+  Skipping M_f[5]: x**4*y**5 + x**3*y**5 + x**2*y**5 + x**2*y**2 + x*y**5 + y**2 (dependent on M_g)
+  Quotient[4]: x**5 + x**3*y**3 + x**2*y**3 + x*y**3 + x + y**3 (independent)
+  Quotient[5]: x**5*y + x**3*y**4 + x**2*y**4 + x*y**4 + x*y + y**4 (independent)
+  Skipping M_f[8]: x**5*y**2 + x**3*y**5 + x**2*y**5 + x*y**5 + x*y**2 + y**5 (dependent on M_g)
+  Skipping M_f[9]: x**5*y**3 + x**3 + x**2 + x*y**3 + x + 1 (dependent on M_g)
+  Skipping M_f[10]: x**5*y**4 + x**3*y + x**2*y + x*y**4 + x*y + y (dependent on M_g)
+  Skipping M_f[11]: x**5*y**5 + x**3*y**2 + x**2*y**2 + x*y**5 + x*y**2 + y**2 (dependent on M_g)
+Final quotient matrix shape: (6, 36)
+Quotient dimension: 6
+
+=== Final Result ===
+Dimension of Ann(y^3 + x + x^2)/(g Ann(y^3 + x + x^2)): 6
+Quotient basis:
+  QuotientBasis[0]: x**4 + x**3 + x**2*y**3 + x**2 + x + y**3
+  QuotientBasis[1]: x**4*y + x**3*y + x**2*y**4 + x**2*y + x*y + y**4
+  QuotientBasis[2]: x**4*y**2 + x**3*y**2 + x**2*y**5 + x**2*y**2 + x*y**2 + y**5
+  QuotientBasis[3]: x**4*y**3 + x**3*y**3 + x**2*y**3 + x**2 + x*y**3 + 1
+  QuotientBasis[4]: x**5 + x**3*y**3 + x**2*y**3 + x*y**3 + x + y**3
+  QuotientBasis[5]: x**5*y + x**3*y**4 + x**2*y**4 + x*y**4 + x*y + y**4
+Logical Z operators on block 1 (Ann(f)/(g Ann(f))):
+  index 0, poly x**3*y**2 + x**3 + y**4 + y**3 + y**2 + y
+    tensor= [[[0, 1, 1, 1, 1, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [1, 0, 1, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]],
+
+ [[0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]]]
+    vector= [0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  index 1, poly x**3*y**3 + x**3*y + y**5 + y**4 + y**3 + y**2
+    tensor= [[[0, 0, 1, 1, 1, 1],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 1, 0, 1, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]],
+
+ [[0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]]]
+    vector= [0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  index 2, poly x**4*y**2 + x**4 + x*y**4 + x*y**3 + x*y**2 + x*y
+    tensor= [[[0, 0, 0, 0, 0, 0],
+  [0, 1, 1, 1, 1, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [1, 0, 1, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]],
+
+ [[0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]]]
+    vector= [0 0 0 0 0 0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 1 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  index 3, poly x**4*y**3 + x**4*y + x*y**5 + x*y**4 + x*y**3 + x*y**2
+    tensor= [[[0, 0, 0, 0, 0, 0],
+  [0, 0, 1, 1, 1, 1],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 1, 0, 1, 0, 0],
+  [0, 0, 0, 0, 0, 0]],
+
+ [[0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]]]
+    vector= [0 0 0 0 0 0 0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 1 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  index 4, poly x**4*y**4 + x**4 + x*y**5 + x*y**2 + x*y + x
+    tensor= [[[0, 0, 0, 0, 0, 0],
+  [1, 1, 1, 0, 0, 1],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [1, 0, 0, 0, 1, 0],
+  [0, 0, 0, 0, 0, 0]],
+
+ [[0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]]]
+    vector= [0 0 0 0 0 0 1 1 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 1 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  index 5, poly x**4*y**5 + x**4*y + x*y**3 + x*y**2 + x*y + x
+    tensor= [[[0, 0, 0, 0, 0, 0],
+  [1, 1, 1, 1, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 1, 0, 0, 0, 1],
+  [0, 0, 0, 0, 0, 0]],
+
+ [[0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]]]
+    vector= [0 0 0 0 0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 1 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+Logical Z operators on block 2 (Ann(g)/(f Ann(g))):
+  index 0, poly x**4 + x**3 + x**2*y**3 + x**2 + x + y**3
+    tensor= [[[0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]],
+
+ [[0, 0, 0, 1, 0, 0],
+  [1, 0, 0, 0, 0, 0],
+  [1, 0, 0, 1, 0, 0],
+  [1, 0, 0, 0, 0, 0],
+  [1, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]]]
+    vector= [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 1 0 0 1 0 0 0 0 0 1 0 0 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0]
+  index 1, poly x**4*y + x**3*y + x**2*y**4 + x**2*y + x*y + y**4
+    tensor= [[[0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]],
+
+ [[0, 0, 0, 0, 1, 0],
+  [0, 1, 0, 0, 0, 0],
+  [0, 1, 0, 0, 1, 0],
+  [0, 1, 0, 0, 0, 0],
+  [0, 1, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]]]
+    vector= [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 1 0 0 1 0 0 0 0 0 1 0 0 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0]
+  index 2, poly x**4*y**2 + x**3*y**2 + x**2*y**5 + x**2*y**2 + x*y**2 + y**5
+    tensor= [[[0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]],
+
+ [[0, 0, 0, 0, 0, 1],
+  [0, 0, 1, 0, 0, 0],
+  [0, 0, 1, 0, 0, 1],
+  [0, 0, 1, 0, 0, 0],
+  [0, 0, 1, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]]]
+    vector= [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 1 0 0 1 0 0 0 0 0 1 0 0 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0]
+  index 3, poly x**4*y**3 + x**3*y**3 + x**2*y**3 + x**2 + x*y**3 + 1
+    tensor= [[[0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]],
+
+ [[1, 0, 0, 0, 0, 0],
+  [0, 0, 0, 1, 0, 0],
+  [1, 0, 0, 1, 0, 0],
+  [0, 0, 0, 1, 0, 0],
+  [0, 0, 0, 1, 0, 0],
+  [0, 0, 0, 0, 0, 0]]]
+    vector= [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1
+ 0 0 0 0 0 0 0 0 1 0 0 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0]
+  index 4, poly x**5 + x**3*y**3 + x**2*y**3 + x*y**3 + x + y**3
+    tensor= [[[0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]],
+
+ [[0, 0, 0, 1, 0, 0],
+  [1, 0, 0, 1, 0, 0],
+  [0, 0, 0, 1, 0, 0],
+  [0, 0, 0, 1, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [1, 0, 0, 0, 0, 0]]]
+    vector= [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 1 0 0 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0]
+  index 5, poly x**5*y + x**3*y**4 + x**2*y**4 + x*y**4 + x*y + y**4
+    tensor= [[[0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0]],
+
+ [[0, 0, 0, 0, 1, 0],
+  [0, 1, 0, 0, 1, 0],
+  [0, 0, 0, 0, 1, 0],
+  [0, 0, 0, 0, 1, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 1, 0, 0, 0, 0]]]
+    vector= [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 1 0 0 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0]
+Logical Z torsion operators (Tor_1):
+  index 0, poly x**5*y**5 + x**5*y**4 + x**5*y**2 + x**4*y**5 + x**4*y**4 + x**4*y**3 + x**4*y**2 + x**4*y + x**4 + x**3*y**5 + x**3*y**3 + x**3*y**2 + x**2*y**4 + 1
+    tensor= [[[1, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 1, 0],
+  [0, 0, 1, 1, 0, 1],
+  [1, 1, 1, 1, 1, 1],
+  [0, 0, 1, 0, 1, 1]],
+
+ [[1, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 1, 0],
+  [0, 0, 1, 1, 0, 1],
+  [1, 1, 1, 1, 1, 1],
+  [0, 0, 1, 0, 1, 1]]]
+    vector= [1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 1 1 0 1 1 1 1 1 1 1 0 0 1 0 1 1 1
+ 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 1 1 0 1 1 1 1 1 1 1 0 0 1 0 1 1]
+  index 1, poly x**5*y + x**5 + x**4*y**4 + x**4*y**2 + x**4 + x**3*y**3 + x**3*y**2 + x**2*y**5 + y
+    tensor= [[[0, 1, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 1],
+  [0, 0, 1, 1, 0, 0],
+  [1, 0, 1, 0, 1, 0],
+  [1, 1, 0, 0, 0, 0]],
+
+ [[0, 1, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 1],
+  [0, 0, 1, 1, 0, 0],
+  [1, 0, 1, 0, 1, 0],
+  [1, 1, 0, 0, 0, 0]]]
+    vector= [0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 1 1 0 0 1 0 1 0 1 0 1 1 0 0 0 0 0
+ 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 1 1 0 0 1 0 1 0 1 0 1 1 0 0 0 0]
+  index 2, poly x**5*y**5 + x**5*y**4 + x**5*y**2 + x**5*y + x**5 + x**4*y**4 + x**4*y**2 + x**4 + x**3*y**4 + x**3*y**3 + x**2*y**5 + x**2*y**4 + y**2
+    tensor= [[[0, 0, 1, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 1, 1],
+  [0, 0, 0, 1, 1, 0],
+  [1, 0, 1, 0, 1, 0],
+  [1, 1, 1, 0, 1, 1]],
+
+ [[0, 0, 1, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 1, 1],
+  [0, 0, 0, 1, 1, 0],
+  [1, 0, 1, 0, 1, 0],
+  [1, 1, 1, 0, 1, 1]]]
+    vector= [0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 1 1 0 1 0 1 0 1 0 1 1 1 0 1 1 0
+ 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 1 1 0 1 0 1 0 1 0 1 1 1 0 1 1]
+  index 3, poly x**5*y**4 + x**5*y**3 + x**5*y**2 + x**5*y + x**4*y**4 + x**4*y**2 + x**4 + x**3*y**5 + x**3*y**4 + x**2*y**4 + y**3
+    tensor= [[[0, 0, 0, 1, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 1, 0],
+  [0, 0, 0, 0, 1, 1],
+  [1, 0, 1, 0, 1, 0],
+  [0, 1, 1, 1, 1, 0]],
+
+ [[0, 0, 0, 1, 0, 0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 1, 0],
+  [0, 0, 0, 0, 1, 1],
+  [1, 0, 1, 0, 1, 0],
+  [0, 1, 1, 1, 1, 0]]]
+    vector= [0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 1 1 0 1 0 1 0 0 1 1 1 1 0 0
+ 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 1 1 0 1 0 1 0 0 1 1 1 1 0]
+Logical operator rank check: rank=12 count=12 independent=True
+Stacked logical Z matrix shape: (12, 72)
+[[0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+ [0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+ [0 0 0 0 0 0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 1 0 0 0 0 0 0 0 0 0
+  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+ [0 0 0 0 0 0 0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 1 0 0 0 0 0 0 0 0
+  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+ [0 0 0 0 0 0 1 1 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 1 0 0 0 0 0 0 0
+  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+ [0 0 0 0 0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 1 0 0 0 0 0 0
+  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+ [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  0 0 0 1 0 0 1 0 0 0 0 0 1 0 0 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0]
+ [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  0 0 0 0 1 0 0 1 0 0 0 0 0 1 0 0 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0]
+ [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  0 0 0 0 0 1 0 0 1 0 0 0 0 0 1 0 0 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0]
+ [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  1 0 0 0 0 0 0 0 0 1 0 0 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0]
+ [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  0 0 0 1 0 0 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0]
+ [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  0 0 0 0 1 0 0 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0]]
+
+=== Debug Info ===
+np.shape(poly_matrix): (16, 72)
+np.shape(poly_stack): (46, 72)
+=== End Debug Info ===
+
+Polynomial ↔ css_code logical Z matches: 0; unmatched polynomial (pairwise)=16; unmatched css (pairwise)=12
+  rank(css ∪ Z)=42, rank(poly ∪ Z)=45, rank(union)=54, rank(Z stabilizer)=30
+Z stabilizer basis (each row is a binary array):
+  stabilizer_z[0] = [0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0
+ 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[1] = [0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 1
+ 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[2] = [0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 1
+ 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[3] = [1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0
+ 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[4] = [0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0
+ 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[5] = [0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0
+ 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[6] = [1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[7] = [0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0
+ 0 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[8] = [0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0
+ 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[9] = [0 0 0 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0
+ 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0]
+  stabilizer_z[10] = [0 0 0 0 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0
+ 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0]
+  stabilizer_z[11] = [0 0 0 0 0 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0
+ 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0]
+  stabilizer_z[12] = [1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0]
+  stabilizer_z[13] = [0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0]
+  stabilizer_z[14] = [0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0]
+  stabilizer_z[15] = [0 0 0 1 0 0 0 0 0 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0]
+  stabilizer_z[16] = [0 0 0 0 1 0 0 0 0 0 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0]
+  stabilizer_z[17] = [0 0 0 0 0 1 0 0 0 0 0 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1]
+  stabilizer_z[18] = [0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1
+ 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[19] = [0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[20] = [0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[21] = [0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[22] = [0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[23] = [0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[24] = [0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0]
+  stabilizer_z[25] = [0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0]
+  stabilizer_z[26] = [0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[27] = [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0
+ 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0]
+  stabilizer_z[28] = [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1]
+  stabilizer_z[29] = [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0
+ 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 1]
+CSS logical Z expressed via polynomial logicals and Z stabilizers:
+  css_logical_z[0] = poly_logical[2] + poly_logical[4] + poly_logical[5] + poly_logical[6] + poly_logical[9] + stabilizer_z[0] + stabilizer_z[1] + stabilizer_z[2] + stabilizer_z[3] + stabilizer_z[4] + stabilizer_z[5] + stabilizer_z[6] + stabilizer_z[7] + stabilizer_z[8] + stabilizer_z[9] + stabilizer_z[10] + stabilizer_z[11] + stabilizer_z[18] + stabilizer_z[21] + stabilizer_z[24] + stabilizer_z[27]
+  css_logical_z[1] = poly_logical[2] + poly_logical[4] + poly_logical[5] + poly_logical[6] + poly_logical[9] + stabilizer_z[0] + stabilizer_z[1] + stabilizer_z[2] + stabilizer_z[3] + stabilizer_z[4] + stabilizer_z[5] + stabilizer_z[6] + stabilizer_z[7] + stabilizer_z[8] + stabilizer_z[9] + stabilizer_z[10] + stabilizer_z[11] + stabilizer_z[18] + stabilizer_z[21] + stabilizer_z[24] + stabilizer_z[27]
+  css_logical_z[2] = poly_logical[2] + poly_logical[4] + poly_logical[5] + poly_logical[6] + poly_logical[9] + stabilizer_z[0] + stabilizer_z[1] + stabilizer_z[2] + stabilizer_z[3] + stabilizer_z[4] + stabilizer_z[5] + stabilizer_z[6] + stabilizer_z[7] + stabilizer_z[8] + stabilizer_z[9] + stabilizer_z[10] + stabilizer_z[11] + stabilizer_z[18] + stabilizer_z[21] + stabilizer_z[24] + stabilizer_z[27]
+  css_logical_z[3] = poly_logical[2] + poly_logical[4] + poly_logical[5] + poly_logical[6] + poly_logical[9] + stabilizer_z[0] + stabilizer_z[1] + stabilizer_z[2] + stabilizer_z[3] + stabilizer_z[4] + stabilizer_z[5] + stabilizer_z[6] + stabilizer_z[7] + stabilizer_z[8] + stabilizer_z[9] + stabilizer_z[10] + stabilizer_z[11] + stabilizer_z[18] + stabilizer_z[21] + stabilizer_z[24] + stabilizer_z[27]
+  css_logical_z[4] = poly_logical[2] + poly_logical[4] + poly_logical[5] + poly_logical[6] + poly_logical[9] + stabilizer_z[0] + stabilizer_z[1] + stabilizer_z[2] + stabilizer_z[3] + stabilizer_z[4] + stabilizer_z[5] + stabilizer_z[6] + stabilizer_z[7] + stabilizer_z[8] + stabilizer_z[9] + stabilizer_z[10] + stabilizer_z[11] + stabilizer_z[18] + stabilizer_z[21] + stabilizer_z[24] + stabilizer_z[27]
+  css_logical_z[5] = poly_logical[2] + poly_logical[4] + poly_logical[5] + poly_logical[6] + poly_logical[9] + stabilizer_z[0] + stabilizer_z[1] + stabilizer_z[2] + stabilizer_z[3] + stabilizer_z[4] + stabilizer_z[5] + stabilizer_z[6] + stabilizer_z[7] + stabilizer_z[8] + stabilizer_z[9] + stabilizer_z[10] + stabilizer_z[11] + stabilizer_z[18] + stabilizer_z[21] + stabilizer_z[24] + stabilizer_z[27]
+  css_logical_z[6] = poly_logical[2] + poly_logical[4] + poly_logical[5] + poly_logical[6] + poly_logical[9] + stabilizer_z[0] + stabilizer_z[1] + stabilizer_z[2] + stabilizer_z[3] + stabilizer_z[4] + stabilizer_z[5] + stabilizer_z[6] + stabilizer_z[7] + stabilizer_z[8] + stabilizer_z[9] + stabilizer_z[10] + stabilizer_z[11] + stabilizer_z[18] + stabilizer_z[21] + stabilizer_z[24] + stabilizer_z[27]
+  css_logical_z[7] = poly_logical[2] + poly_logical[4] + poly_logical[5] + poly_logical[6] + poly_logical[9] + stabilizer_z[0] + stabilizer_z[1] + stabilizer_z[2] + stabilizer_z[3] + stabilizer_z[4] + stabilizer_z[5] + stabilizer_z[6] + stabilizer_z[7] + stabilizer_z[8] + stabilizer_z[9] + stabilizer_z[10] + stabilizer_z[11] + stabilizer_z[18] + stabilizer_z[21] + stabilizer_z[24] + stabilizer_z[27]
+  css_logical_z[8] = poly_logical[2] + poly_logical[4] + poly_logical[5] + poly_logical[6] + poly_logical[9] + stabilizer_z[0] + stabilizer_z[1] + stabilizer_z[2] + stabilizer_z[3] + stabilizer_z[4] + stabilizer_z[5] + stabilizer_z[6] + stabilizer_z[7] + stabilizer_z[8] + stabilizer_z[9] + stabilizer_z[10] + stabilizer_z[11] + stabilizer_z[18] + stabilizer_z[21] + stabilizer_z[24] + stabilizer_z[27]
+  css_logical_z[9] = poly_logical[2] + poly_logical[4] + poly_logical[5] + poly_logical[6] + poly_logical[9] + stabilizer_z[0] + stabilizer_z[1] + stabilizer_z[2] + stabilizer_z[3] + stabilizer_z[4] + stabilizer_z[5] + stabilizer_z[6] + stabilizer_z[7] + stabilizer_z[8] + stabilizer_z[9] + stabilizer_z[10] + stabilizer_z[11] + stabilizer_z[18] + stabilizer_z[21] + stabilizer_z[24] + stabilizer_z[27]
+  css_logical_z[10] = poly_logical[2] + poly_logical[4] + poly_logical[5] + poly_logical[6] + poly_logical[9] + stabilizer_z[0] + stabilizer_z[1] + stabilizer_z[2] + stabilizer_z[3] + stabilizer_z[4] + stabilizer_z[5] + stabilizer_z[6] + stabilizer_z[7] + stabilizer_z[8] + stabilizer_z[9] + stabilizer_z[10] + stabilizer_z[11] + stabilizer_z[18] + stabilizer_z[21] + stabilizer_z[24] + stabilizer_z[27]
+  css_logical_z[11] = poly_logical[2] + poly_logical[4] + poly_logical[5] + poly_logical[6] + poly_logical[9] + stabilizer_z[0] + stabilizer_z[1] + stabilizer_z[2] + stabilizer_z[3] + stabilizer_z[4] + stabilizer_z[5] + stabilizer_z[6] + stabilizer_z[7] + stabilizer_z[8] + stabilizer_z[9] + stabilizer_z[10] + stabilizer_z[11] + stabilizer_z[18] + stabilizer_z[21] + stabilizer_z[24] + stabilizer_z[27]
+Polynomial logical Z expressed via css_code logicals and Z stabilizers:
+  poly_logical[0] cannot be expressed via css_code logicals and Z stabilizers
+  poly_logical[1] cannot be expressed via css_code logicals and Z stabilizers
+  poly_logical[2] cannot be expressed via css_code logicals and Z stabilizers
+  poly_logical[3] cannot be expressed via css_code logicals and Z stabilizers
+  poly_logical[4] cannot be expressed via css_code logicals and Z stabilizers
+  poly_logical[5] cannot be expressed via css_code logicals and Z stabilizers
+  poly_logical[6] cannot be expressed via css_code logicals and Z stabilizers
+  poly_logical[7] cannot be expressed via css_code logicals and Z stabilizers
+  poly_logical[8] cannot be expressed via css_code logicals and Z stabilizers
+  poly_logical[9] cannot be expressed via css_code logicals and Z stabilizers
+  poly_logical[10] cannot be expressed via css_code logicals and Z stabilizers
+  poly_logical[11] cannot be expressed via css_code logicals and Z stabilizers
+  ⚠ Polynomial vectors outside span(css ∪ Z) indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  ⚠ css_code vectors outside span(polynomials ∪ Z) indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+--------------------------------------------------------------------------------

@@ -649,6 +649,14 @@ def verify_logical_z_equivalence(
     # rank(css ∪ Z)=42, rank(poly ∪ Z)=45, rank(union)=54, rank(Z stabilizer)=30
     # 2025/09/20
     # BUG! Why rank_poly - rank_Z is larger than the rank of the poly itself?
+    # It seems to be the problem of the matrix poly_matrix.
+
+    ###################### for debug ######################
+    print(f'\n=== Debug Info ===')
+    print(f'np.shape(poly_matrix): {np.shape(poly_matrix)}')
+    print(f'np.shape(poly_stack): {np.shape(poly_stack)}')
+    print(f'=== End Debug Info ===\n')
+    #######################################################
     rank_css = mod2.rank(css_stack)
     rank_poly = mod2.rank(poly_stack)
     rank_union = (
