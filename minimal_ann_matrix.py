@@ -16,6 +16,7 @@ import numpy as np
 import sympy as sp
 from sympy import symbols, expand
 import ldpc.mod2 as mod2
+from scipy import sparse
 from typing import Any, Dict, List, Optional, Tuple
 
 from bivariate_bicycle_codes import get_BB_Hx_Hz
@@ -38,14 +39,16 @@ def _get_ring_groebner(l: int, m: int) -> sp.GroebnerBasis:
 
 def _monomial_basis(l: int, m: int) -> List[sp.Expr]:
     """Return ordered basis [x^i y^j] with 0 <= i < l, 0 <= j < m."""
-    return [x**i * y**j for i in range(l) for j in range(m)]
+
+    # Lex order with x > y (descending exponents in x, then y)
+    exponent_pairs = [(i, j) for i in range(l) for j in range(m)]
+    exponent_pairs.sort(key=lambda pair: (-pair[0], -pair[1]))
+
+    return [x**i * y**j for i, j in exponent_pairs]
 
 def setup_ring(l: int, m: int):
     """Setup polynomial ring GF(2)[x,y] with periodic boundary x^l+1, y^m+1"""
-    monomials = []
-    for i in range(l):
-        for j in range(m):
-            monomials.append(x**i * y**j)
+    monomials = _monomial_basis(l, m)
 
     print(f"Ring: GF(2)[x,y] with {len(monomials)} monomials")
     print(f"Boundary conditions: x^{l} = 1, y^{m} = 1")
@@ -244,49 +247,6 @@ def _intersection_ideal_basis_via_elimination(
     return _ideal_span_from_generators(inter_gens, monomials, l, m)
 
 
-def _subspace_intersection(
-    A: np.ndarray, B: np.ndarray
-) -> np.ndarray:
-    """Return row-space basis for the intersection of row spaces of A and B."""
-
-    if A.size == 0 or B.size == 0:
-        return np.zeros((0, A.shape[1] if A.size else B.shape[1]), dtype=np.uint8)
-
-    A_uint8 = np.asarray(A, dtype=np.uint8)
-    B_uint8 = np.asarray(B, dtype=np.uint8)
-
-    N = A_uint8.shape[1]
-    if B_uint8.shape[1] != N:
-        raise ValueError("Subspaces must share the same ambient dimension")
-
-    augmented = np.hstack([A_uint8.T, B_uint8.T])
-    nullspace_vecs = mod2.nullspace(augmented)
-
-    intersection_vectors: List[np.ndarray] = []
-
-    for vec in nullspace_vecs:
-        if hasattr(vec, "toarray"):
-            gamma = vec.toarray().astype(np.uint8).flatten() % 2
-        else:
-            gamma = np.asarray(vec, dtype=np.uint8).flatten() % 2
-
-        alpha = gamma[: A_uint8.shape[0]]
-        if not np.any(alpha):
-            continue
-
-        combo = np.zeros(N, dtype=np.uint8)
-        for idx, coeff in enumerate(alpha):
-            if coeff % 2 == 1:
-                combo ^= A_uint8[idx]
-
-        if np.any(combo):
-            intersection_vectors.append(combo)
-
-    if not intersection_vectors:
-        return np.zeros((0, N), dtype=np.uint8)
-
-    return _row_space_basis(np.stack(intersection_vectors))
-
 def compute_ann_f_matrix(f_poly, monomials, l: int, m: int):
     """Compute Ann(f) as matrix M_f where rows are generators"""
 
@@ -332,6 +292,23 @@ def compute_ann_f_matrix(f_poly, monomials, l: int, m: int):
     for i, gen in enumerate(ann_f_polys):
         print(f"  Ann(f)[{i}]: {gen}")
 
+    # VERIFICATION: Check that f * Ann(f) = 0 in the polynomial ring
+    print(f"\n=== VERIFICATION: f * Ann(f) = 0 ===")
+    all_products_zero = True
+    for i, h_poly in enumerate(ann_f_polys):
+        product = expand(f_poly * h_poly)
+        product_reduced = apply_periodic_boundary(product, l, m)
+        if product_reduced != 0:
+            print(f"  ERROR: f * Ann(f)[{i}] = {product_reduced} ≠ 0")
+            all_products_zero = False
+        else:
+            print(f"  ✓ f * Ann(f)[{i}] = 0")
+    
+    if all_products_zero:
+        print(f"✓ VERIFIED: All f * Ann(f) products are zero in the polynomial ring")
+    else:
+        print(f"✗ VERIFICATION FAILED: Some f * Ann(f) products are non-zero")
+
     return M_f, ann_f_polys
 
 def compute_g_ann_f_matrix(g_poly, M_f, ann_f_polys, monomials, l: int, m: int):
@@ -346,11 +323,14 @@ def compute_g_ann_f_matrix(g_poly, M_f, ann_f_polys, monomials, l: int, m: int):
     for i, h_poly in enumerate(ann_f_polys):
         gh_poly = expand(g_poly * h_poly)
         gh_vec = poly_to_vector(gh_poly, monomials, l, m)
+        gh_poly_reduced = vector_to_poly(gh_vec, monomials)
 
         g_ann_f_matrix.append(gh_vec)
-        g_ann_f_polys.append(gh_poly)
+        g_ann_f_polys.append(gh_poly_reduced)
 
-        print(f"  g*Ann(f)[{i}]: ({g_poly}) * ({h_poly}) = {gh_poly}")
+        print(
+            f"  g*Ann(f)[{i}]: ({g_poly}) * ({h_poly}) ≡ {gh_poly_reduced}"
+        )
 
     if g_ann_f_matrix:
         M_g = np.vstack(g_ann_f_matrix).astype(np.uint8)
@@ -361,77 +341,75 @@ def compute_g_ann_f_matrix(g_poly, M_f, ann_f_polys, monomials, l: int, m: int):
 
     return M_g, g_ann_f_polys
 
-def compute_quotient_matrix(M_f, M_g, monomials, verbose: bool = True):
-    """Compute quotient M_f/M_g using Gaussian elimination with proper sparse handling"""
+def compute_quotient_matrix(
+    M_f: np.ndarray,
+    M_g: np.ndarray,
+    monomials: List[sp.Expr],
+    *,
+    label: str = "M_f/M_g",
+    verbose: bool = True,
+):
+    """Compute the quotient M_f/M_g using a stacked sparse matrix and pivot rows."""
 
     if verbose:
-        print(f"\n=== Computing Quotient M_f/M_g using Gaussian elimination ===")
+        print(f"\n=== {label} ===")
         print(f"M_f shape: {M_f.shape}")
         print(f"M_g shape: {M_g.shape}")
 
-    if M_f.shape[0] == 0:
+    if M_f.ndim == 1:
+        M_f = M_f.reshape(1, -1)
+    if M_g.ndim == 1:
+        M_g = M_g.reshape(1, -1)
+
+    if M_f.size == 0:
         if verbose:
-            print("M_f is empty, quotient is trivial")
+            print("Ann matrix is empty ⇒ trivial quotient")
+        cols = M_g.shape[1] if M_g.size else 0
+        return np.zeros((0, cols), dtype=np.uint8), []
+
+    if M_g.size == 0:
+        if verbose:
+            print("g·Ann matrix is empty ⇒ quotient equals Ann matrix")
+        rows = [row for row in M_f if np.any(row)]
+        polys = [vector_to_poly(row, monomials) for row in rows]
+        return np.asarray(rows, dtype=np.uint8), polys
+
+    M_g_sparse = sparse.csr_matrix(M_g, dtype=np.uint8)
+    M_f_sparse = sparse.csr_matrix(M_f, dtype=np.uint8)
+
+    max_cols = max(M_g_sparse.shape[1], M_f_sparse.shape[1])
+    if M_g_sparse.shape[1] < max_cols:
+        pad = sparse.csr_matrix((M_g_sparse.shape[0], max_cols - M_g_sparse.shape[1]), dtype=np.uint8)
+        M_g_sparse = sparse.hstack([M_g_sparse, pad])
+    if M_f_sparse.shape[1] < max_cols:
+        pad = sparse.csr_matrix((M_f_sparse.shape[0], max_cols - M_f_sparse.shape[1]), dtype=np.uint8)
+        M_f_sparse = sparse.hstack([M_f_sparse, pad])
+
+    log_stack = sparse.vstack([M_g_sparse, M_f_sparse])
+    log_stack_dense = log_stack.toarray().astype(np.uint8)
+
+    rank_Mg = mod2.rank(M_g)
+    if verbose:
+        print(f"Rank(M_g) = {rank_Mg}")
+
+    # Follow the ldpc package method to find pivot rows
+    pivot_rows = mod2.pivot_rows(log_stack_dense)
+    if len(pivot_rows) <= rank_Mg:
+        if verbose:
+            print("No independent rows beyond g·Ann ⇒ quotient is trivial")
         return np.zeros((0, M_f.shape[1]), dtype=np.uint8), []
 
-    if M_g.shape[0] == 0:
-        if verbose:
-            print("M_g is empty, quotient is just M_f")
-        non_zero_rows = []
-        non_zero_polys = []
-        for row in M_f:
-            if np.any(row):
-                non_zero_rows.append(row)
-                non_zero_polys.append(vector_to_poly(row, monomials))
-        return np.array(non_zero_rows, dtype=np.uint8), non_zero_polys
+    ann_pivots = pivot_rows[rank_Mg:]
+    quotient_ops = log_stack_dense[ann_pivots]
 
-    # Use simple rank-based approach to avoid sparse array complexity
-    quotient_rows = []
-    quotient_polys = []
-
-    # Track the span of g*Ann(f) augmented with the quotient rows we keep
-    # BUG FIXED
-    # The quotient loop now keeps a mutable basis starting from M_g. Every time we
-    # accept an Ann(f) row, it gets appended to this basis and the stored rank is
-    # updated. Later rows are tested against the combined span rather than the
-    # original M_g, so any component already generated by g·Ann(f) (or by quotient
-    # rows we have already kept) is filtered out. This prevents overcounting
-    # logical operators.
-    basis_matrix = M_g.copy()
-    rank_basis = mod2.rank(basis_matrix)
+    quotient_polys = [vector_to_poly(row, monomials) for row in quotient_ops]
     if verbose:
-        print(f"Rank of M_g: {rank_basis}")
+        for idx, poly in enumerate(quotient_polys):
+            vec = quotient_ops[idx]
+            print(f"  Q[{idx}] polynomial: {poly}")
+            print(f"  Q[{idx}] vector: {vec.tolist()}")
 
-    # For each row in M_f, check if it's linearly independent from current basis
-    for i, f_row in enumerate(M_f):
-        if not np.any(f_row):
-            continue  # Skip zero rows
-
-        # Test if adding f_row expands the current span
-        test_matrix = np.vstack([basis_matrix, f_row.reshape(1, -1)])
-        rank_test = mod2.rank(test_matrix)
-
-        if rank_test > rank_basis:
-            # f_row adds a new coset representative to the quotient basis
-            quotient_rows.append(f_row)
-            poly = vector_to_poly(f_row, monomials)
-            quotient_polys.append(poly)
-            if verbose:
-                print(f"  Quotient[{len(quotient_rows)-1}]: {poly} (independent)")
-            basis_matrix = test_matrix
-            rank_basis = rank_test
-        else:
-            if verbose:
-                poly = vector_to_poly(f_row, monomials)
-                print(f"  Skipping M_f[{i}]: {poly} (dependent on M_g)")
-
-    quotient_matrix = np.array(quotient_rows, dtype=np.uint8) if quotient_rows else np.zeros((0, M_f.shape[1]), dtype=np.uint8)
-
-    if verbose:
-        print(f"Final quotient matrix shape: {quotient_matrix.shape}")
-        print(f"Quotient dimension: {len(quotient_polys)}")
-
-    return quotient_matrix, quotient_polys
+    return quotient_ops.astype(np.uint8), quotient_polys
 
 
 def compute_tor_1(
@@ -506,9 +484,21 @@ def _poly_to_exponent_pairs(poly: sp.Expr, l: int, m: int) -> List[Tuple[int, in
     basis = _monomial_basis(l, m)
     vec = poly_to_vector(poly, basis, l, m)
     pairs: List[Tuple[int, int]] = []
+    # 2025/09/23
+    # NOTE: bug is fixed here for the mimatch between the monomial basis order
     for idx in np.where(vec == 1)[0]:
-        a = int(idx // m)
-        b = int(idx % m)
+        monom = basis[idx]
+        poly_monom = sp.Poly(monom, x, y, modulus=2)
+        monoms = poly_monom.monoms()
+        if not monoms:
+            pairs.append((0, 0))
+            continue
+        exponents = monoms[0]
+        if len(exponents) == 0:
+            pairs.append((0, 0))
+            continue
+        a = int(exponents[0]) % l
+        b = int(exponents[1]) % m
         pairs.append((a, b))
     return pairs
 
@@ -572,8 +562,8 @@ def compute_logical_qubit_operators(f_str: str, g_str: str, l: int, m: int) -> D
         entry["index"] = idx
         torsion_ops.append(entry)
 
-    # all_vectors = [op["vector"] for op in block1_ops + block2_ops + torsion_ops]
-    all_vectors = [op["vector"] for op in block1_ops + block2_ops]
+    all_vectors = [op["vector"] for op in block1_ops + block2_ops + torsion_ops]
+    # all_vectors = [op["vector"] for op in block1_ops + block2_ops]
     if all_vectors:
         logical_matrix = np.vstack(all_vectors).astype(np.uint8)
         span_rank = mod2.rank(logical_matrix)
@@ -629,12 +619,25 @@ def verify_logical_z_equivalence(
 
     z_stab_rank = z_stab_basis.shape[0] if z_stab_basis.size else 0
 
-    poly_entries = logicals["block1"] + logicals["block2"] + logicals.get("torsion", [])
+    poly_entries = logicals["block1"] + logicals["block2"] + logicals["torsion"]
+    
+    # DEBUG: Show poly_entries structure and shape
+    print(f"DEBUG: len(logicals['block1']): {len(logicals['block1'])}")
+    print(f"DEBUG: len(logicals['block2']): {len(logicals['block2'])}")
+    print(f"DEBUG: len(logicals.get('torsion', [])): {len(logicals.get('torsion', []))}")
+    print(f"DEBUG: total poly_entries length: {len(poly_entries)}")
+    if poly_entries:
+        print(f"DEBUG: first poly_entry vector shape: {poly_entries[0]['vector'].shape}")
+        print(f"DEBUG: poly_entries structure: list of {len(poly_entries)} entries, each with 'vector' key")
+    else:
+        print(f"DEBUG: poly_entries is empty")
+
     poly_matrix = (
         np.vstack([entry["vector"] for entry in poly_entries]).astype(np.uint8)
         if poly_entries
         else np.zeros((0, Hz.shape[1]), dtype=np.uint8)
     )
+
 
     css_stack = (
         np.vstack([z_stab_basis, lz_matrix])
@@ -648,13 +651,17 @@ def verify_logical_z_equivalence(
     )
     # rank(css ∪ Z)=42, rank(poly ∪ Z)=45, rank(union)=54, rank(Z stabilizer)=30
     # 2025/09/20
-    # BUG! Why rank_poly - rank_Z is larger than the rank of the poly itself?
+    # NOTE: rank_poly - rank_Z (= 15) is actually < rank_poly_alone (= 16)
+    # This is expected: some polynomial vectors may be linearly dependent on Z stabilizers
+    print(f"DEBUG: css_stack shape: {css_stack.shape}")
+    print(f"DEBUG: poly_stack shape: {poly_stack.shape}")
+    
     rank_css = mod2.rank(css_stack)
     rank_poly = mod2.rank(poly_stack)
     rank_union = (
         mod2.rank(np.vstack([z_stab_basis, lz_matrix, poly_matrix]))
     )
-
+    
     def in_z_stabilizer_span(vec: np.ndarray) -> bool:
         if z_stab_basis.size == 0:
             return not np.any(vec)
@@ -923,7 +930,7 @@ def run_test_examples():
     test_cases = [
         ("1 + x", "1 + y", 3, 3),
         ("1 + x + x*y", "1 + y + x*y", 3, 3),
-        # ("1 + x + x*y", "1 + y + x*y", 9, 9),
+        ("1 + x + x*y", "1 + y + x*y", 6, 6),
         ("x^3 + y + y^2", "y^3 + x + x^2", 6, 6),
     ]
 
@@ -951,10 +958,13 @@ def run_test_examples():
                 print("    vector=", entry["vector"])
 
             print("Logical Z torsion operators (Tor_1):")
-            for entry in logicals["torsion"]:
-                print(f"  index {entry['index']}, poly {entry['poly']}")
-                print("    tensor=", np.array2string(entry["tensor"], separator=", "))
-                print("    vector=", entry["vector"])
+            if logicals["torsion"]:
+                for entry in logicals["torsion"]:
+                    print(f"  index {entry['index']}, poly {entry['poly']}")
+                    print("    tensor=", np.array2string(entry["tensor"], separator=", "))
+                    print("    vector=", entry["vector"])
+            else:
+                print("  (none)")
 
             indep = logicals["independence"]
             print(
