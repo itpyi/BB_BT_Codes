@@ -92,26 +92,6 @@ def vector_to_poly(vector, monomials):
         if coeff % 2 == 1:  # In GF(2)
             poly += monomials[i]
     return poly
-
-
-def _row_space_basis(matrix: np.ndarray) -> np.ndarray:
-    """Return a row-echelon basis for the row space of `matrix` over GF(2)."""
-
-    if matrix.size == 0 or matrix.shape[0] == 0:
-        return np.zeros((0, matrix.shape[1] if matrix.ndim == 2 else 0), dtype=np.uint8)
-
-    matrix_uint8 = np.asarray(matrix, dtype=np.uint8)
-    rref, _, _, _ = mod2.row_echelon(matrix_uint8, full=True)
-    if not isinstance(rref, np.ndarray):
-        rref = rref.toarray()
-
-    basis_rows = [row.astype(np.uint8) % 2 for row in rref if np.any(row)]
-    if not basis_rows:
-        return np.zeros((0, matrix.shape[1]), dtype=np.uint8)
-
-    return np.stack(basis_rows).astype(np.uint8)
-
-
 def _principal_ideal_basis(
     poly: sp.Expr, monomials: List[sp.Expr], l: int, m: int
 ) -> Tuple[np.ndarray, List[sp.Expr]]:
@@ -137,6 +117,8 @@ def _principal_ideal_basis(
         return sp.expand(rem)
 
     def poly_to_vec_gb(expr: sp.Expr) -> np.ndarray:
+        # reduce the another expr for three generators: poly, x^l+1, y^m+1
+
         rem = reduce_mod_A(expr)
         vec = np.zeros(len(monomials), dtype=np.uint8)
         if rem == 0:
@@ -171,7 +153,14 @@ def _principal_ideal_basis(
 
     M = np.stack(cols, axis=1) if cols else np.zeros((N, 0), dtype=np.uint8)
 
-    basis_matrix = _row_space_basis(M.T)
+    basis_sparse = mod2.row_basis(M.T)
+    basis_matrix = (
+        basis_sparse.toarray().astype(np.uint8)
+        if hasattr(basis_sparse, "toarray")
+        else np.asarray(basis_sparse, dtype=np.uint8)
+    )
+    if basis_matrix.size == 0:
+        basis_matrix = np.zeros((0, M.shape[0]), dtype=np.uint8)
     basis_polys = [vector_to_poly(row, monomials) for row in basis_matrix]
     return basis_matrix, basis_polys
 
@@ -218,7 +207,14 @@ def _ideal_span_from_generators(
         for g in gens:
             cols.append(poly_to_vec_gb(mon * g))
     M = np.stack(cols, axis=1) if cols else np.zeros((N, 0), dtype=np.uint8)
-    basis_matrix = _row_space_basis(M.T)
+    basis_sparse = mod2.row_basis(M.T)
+    basis_matrix = (
+        basis_sparse.toarray().astype(np.uint8)
+        if hasattr(basis_sparse, "toarray")
+        else np.asarray(basis_sparse, dtype=np.uint8)
+    )
+    if basis_matrix.size == 0:
+        basis_matrix = np.zeros((0, M.shape[0]), dtype=np.uint8)
     basis_polys = [vector_to_poly(row, monomials) for row in basis_matrix]
     return basis_matrix, basis_polys
 
@@ -474,6 +470,17 @@ def _polynomial_to_block_indicator(poly: sp.Expr, l: int, m: int) -> np.ndarray:
         a = idx // m
         b = idx % m
         block[a, b] = 1
+
+    # # BUG
+    # # Why the correct block but fails for the logical operator
+    # for idx in np.where(vec == 1)[0]:
+    #     monom = basis[idx]
+    #     monom_poly = sp.Poly(monom, x, y, modulus=2)
+    #     monoms = monom_poly.monoms()
+    #     if not monoms:
+    #         continue
+    #     a, b = monoms[0]
+    #     block[int(a) % l, int(b) % m] = 1
 
     return block
 
