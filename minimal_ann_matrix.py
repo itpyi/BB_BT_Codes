@@ -80,6 +80,62 @@ def vector_to_poly(vector, monomials):
     return poly
 
 
+def _multiplication_matrix(
+    poly: sp.Expr, monomials: List[sp.Expr], l: int, m: int
+) -> np.ndarray:
+    """Return matrix for multiplication by `poly` in the ambient ring."""
+
+    N = len(monomials)
+    M = np.zeros((N, N), dtype=np.uint8)
+    for j, mon_j in enumerate(monomials):
+        prod = expand(mon_j * poly)
+        M[:, j] = poly_to_vector(prod, monomials, l, m)
+    return M
+
+
+def _solve_linear_mod2(A: np.ndarray, b: np.ndarray) -> Optional[np.ndarray]:
+    """Solve A x = b over GF(2). Returns one solution or None if inconsistent."""
+
+    A = (A.astype(np.uint8) % 2).copy()
+    b = (b.astype(np.uint8) % 2).copy().reshape(-1)
+    n_rows, n_cols = A.shape
+    aug = np.concatenate([A, b.reshape(-1, 1)], axis=1).astype(np.uint8)
+
+    row = 0
+    pivots: List[int] = []
+    for col in range(n_cols):
+        pivot = None
+        for r in range(row, n_rows):
+            if aug[r, col] & 1:
+                pivot = r
+                break
+        if pivot is None:
+            continue
+        if pivot != row:
+            aug[[row, pivot]] = aug[[pivot, row]]
+        for r in range(n_rows):
+            if r != row and (aug[r, col] & 1):
+                aug[r, :] ^= aug[row, :]
+        pivots.append(col)
+        row += 1
+        if row == n_rows:
+            break
+
+    for r in range(n_rows):
+        if not aug[r, :n_cols].any() and (aug[r, n_cols] & 1):
+            return None
+
+    x = np.zeros(n_cols, dtype=np.uint8)
+    for r in range(min(len(pivots), n_rows)):
+        col = pivots[r]
+        s = 0
+        for c in range(col + 1, n_cols):
+            if aug[r, c] & 1:
+                s ^= x[c]
+        x[col] = (aug[r, n_cols] ^ s) & 1
+    return x
+
+
 def _row_basis_from_polynomials(
     polys: List[sp.Expr], monomials: List[sp.Expr], l: int, m: int
 ) -> Tuple[np.ndarray, List[sp.Expr]]:
@@ -104,61 +160,6 @@ def _row_basis_from_polynomials(
     return basis_matrix, basis_polys
 
 
-def _multiplication_matrix(poly: sp.Expr, monomials: List[sp.Expr], l: int, m: int) -> np.ndarray:
-    """Return N×N matrix M such that for coefficient vector v, vec(sum v_j m_j · poly) = M v."""
-    N = len(monomials)
-    M = np.zeros((N, N), dtype=np.uint8)
-    for j, mon_j in enumerate(monomials):
-        prod = expand(mon_j * poly)
-        M[:, j] = poly_to_vector(prod, monomials, l, m)
-    return M
-
-
-def _solve_linear_mod2(A: np.ndarray, b: np.ndarray) -> Optional[np.ndarray]:
-    """Solve A x = b over GF(2). Returns one solution or None if inconsistent."""
-    A = (A.astype(np.uint8) % 2).copy()
-    b = (b.astype(np.uint8) % 2).copy().reshape(-1)
-    n_rows, n_cols = A.shape
-    aug = np.concatenate([A, b.reshape(-1, 1)], axis=1).astype(np.uint8)
-
-    row = 0
-    pivots: List[int] = []
-    for col in range(n_cols):
-        # Find pivot
-        pivot = None
-        for r in range(row, n_rows):
-            if aug[r, col] & 1:
-                pivot = r
-                break
-        if pivot is None:
-            continue
-        if pivot != row:
-            aug[[row, pivot]] = aug[[pivot, row]]
-        # Eliminate other rows
-        for r in range(n_rows):
-            if r != row and (aug[r, col] & 1):
-                aug[r, :] ^= aug[row, :]
-        pivots.append(col)
-        row += 1
-        if row == n_rows:
-            break
-
-    # Check consistency
-    for r in range(n_rows):
-        if not aug[r, :n_cols].any() and (aug[r, n_cols] & 1):
-            return None
-
-    # Back-substitution (matrix is in RREF)
-    x = np.zeros(n_cols, dtype=np.uint8)
-    for r in range(min(len(pivots), n_rows)):
-        col = pivots[r]
-        # Find the sum of known variables in this row
-        s = 0
-        for c in range(col + 1, n_cols):
-            if aug[r, c] & 1:
-                s ^= x[c]
-        x[col] = (aug[r, n_cols] ^ s) & 1
-    return x
 
 def _principal_ideal_basis(
     poly: sp.Expr, monomials: List[sp.Expr], l: int, m: int
@@ -523,8 +524,36 @@ def build_qubit_logical_indicator(
     }
 
 
+def build_torsion_logical_indicator(
+    torsion_poly: sp.Expr,
+    f_multiplier: sp.Expr,
+    g_multiplier: sp.Expr,
+    l: int,
+    m: int,
+) -> Dict[str, Any]:
+    """Map torsion element to paired qubit support on the two blocks."""
+
+    qubit_tensor = np.zeros((2, l, m), dtype=np.uint8)
+    qubit_tensor[0] = _polynomial_to_block_indicator(f_multiplier, l, m)
+    qubit_tensor[1] = _polynomial_to_block_indicator(g_multiplier, l, m)
+
+    qubit_vector = qubit_tensor.reshape(-1)
+
+    return {
+        "poly": torsion_poly,
+        "block": "torsion",
+        "tensor": qubit_tensor,
+        "vector": qubit_vector,
+        "f_multiplier": f_multiplier,
+        "g_multiplier": g_multiplier,
+    }
+
+
 def compute_logical_qubit_operators(f_str: str, g_str: str, l: int, m: int) -> Dict[str, Any]:
     """Return logical Z operators as qubit occupancy vectors for both blocks."""
+
+    f_poly = sp.sympify(f_str)
+    g_poly = sp.sympify(g_str)
 
     result_f = compute_ann_quotient_matrix(f_str, g_str, l, m)
     result_g = compute_ann_quotient_matrix(g_str, f_str, l, m)
@@ -543,8 +572,38 @@ def compute_logical_qubit_operators(f_str: str, g_str: str, l: int, m: int) -> D
 
     torsion = compute_tor_1(f_str, g_str, l, m)
     torsion_ops = []
+    if torsion["tor_basis"]:
+        monomials = _monomial_basis(l, m)
+        mult_matrix_f = _multiplication_matrix(f_poly, monomials, l, m)
+        mult_matrix_g = _multiplication_matrix(g_poly, monomials, l, m)
+    else:
+        monomials = []
+        mult_matrix_f = None
+        mult_matrix_g = None
+
     for idx, poly in enumerate(torsion["tor_basis"]):
-        entry = build_qubit_logical_indicator(poly, l, m, block="torsion")
+        if mult_matrix_f is None or mult_matrix_g is None:
+            raise RuntimeError("Expected torsion multiplication matrices to be initialized")
+
+        tor_vec = poly_to_vector(poly, monomials, l, m)
+        f_solution = _solve_linear_mod2(mult_matrix_f, tor_vec)
+        g_solution = _solve_linear_mod2(mult_matrix_g, tor_vec)
+
+        if f_solution is None or g_solution is None:
+            raise ValueError(
+                "Failed to express torsion generator as both f-multiple and g-multiple"
+            )
+
+        f_multiplier = vector_to_poly(f_solution, monomials)
+        g_multiplier = vector_to_poly(g_solution, monomials)
+
+        entry = build_torsion_logical_indicator(
+            poly,
+            f_multiplier,
+            g_multiplier,
+            l,
+            m,
+        )
         entry["index"] = idx
         torsion_ops.append(entry)
 
@@ -925,10 +984,10 @@ def run_test_examples():
 
     test_cases = [
         ("1 + x", "1 + y", 3, 3),
-        # ("1 + x + x*y", "1 + y + x*y", 3, 3),
+        ("1 + x + x*y", "1 + y + x*y", 3, 3),
         # ("1 + x + x*y", "1 + y + x*y", 6, 6),
         ("x^3 + y + y^2", "y^3 + x + x^2", 6, 6),
-        # ("x^3 + y + y^2", "y^3 + x + x^2", 3, 3),
+        # ("x^3 + y + y^2", "y^3 + x + x^2", 12, 12),
         # ("x+1", "y+1+x^2", 2, 2),
     ]
 
@@ -959,6 +1018,9 @@ def run_test_examples():
             if logicals["torsion"]:
                 for entry in logicals["torsion"]:
                     print(f"  index {entry['index']}, poly {entry['poly']}")
+                    if "f_multiplier" in entry and "g_multiplier" in entry:
+                        print(f"    f_multiplier = {entry['f_multiplier']}")
+                        print(f"    g_multiplier = {entry['g_multiplier']}")
                     print("    tensor=", np.array2string(entry["tensor"], separator=", "))
                     print("    vector=", entry["vector"])
             else:
