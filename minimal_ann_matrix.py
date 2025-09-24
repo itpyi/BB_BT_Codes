@@ -40,11 +40,8 @@ def _get_ring_groebner(l: int, m: int) -> sp.GroebnerBasis:
 def _monomial_basis(l: int, m: int) -> List[sp.Expr]:
     """Return ordered basis [x^i y^j] with 0 <= i < l, 0 <= j < m."""
 
-    # Lex order with x > y (descending exponents in x, then y)
-    exponent_pairs = [(i, j) for i in range(l) for j in range(m)]
-    exponent_pairs.sort(key=lambda pair: (-pair[0], -pair[1]))
-
-    return [x**i * y**j for i, j in exponent_pairs]
+    # Ascending lex / row-major order: (0,0), (0,1), ..., (l-1, m-1)
+    return [x**i * y**j for i in range(l) for j in range(m)]
 
 def setup_ring(l: int, m: int):
     """Setup polynomial ring GF(2)[x,y] with periodic boundary x^l+1, y^m+1"""
@@ -68,21 +65,10 @@ def poly_to_vector(poly, monomials, l: int, m: int):
         return vector
     terms = sp.Add.make_args(poly_reduced) if poly_reduced.is_Add else [poly_reduced]
     for term in terms:
-        if term.is_number:
-            if int(term) % 2 == 1:
-                try:
-                    idx = monomials.index(1)
-                    vector[idx] = 1
-                except ValueError:
-                    pass
-        else:
-            coeff, monom_part = term.as_coeff_Mul()
-            if int(coeff) % 2 == 1:
-                try:
-                    idx = monomials.index(monom_part)
-                    vector[idx] = 1
-                except ValueError:
-                    pass
+        coeff, monom_part = term.as_coeff_Mul()
+        if int(coeff) % 2 == 1:
+            idx = monomials.index(monom_part)
+            vector[idx] = 1
     return vector
 
 def vector_to_poly(vector, monomials):
@@ -92,6 +78,7 @@ def vector_to_poly(vector, monomials):
         if coeff % 2 == 1:  # In GF(2)
             poly += monomials[i]
     return poly
+
 def _principal_ideal_basis(
     poly: sp.Expr, monomials: List[sp.Expr], l: int, m: int
 ) -> Tuple[np.ndarray, List[sp.Expr]]:
@@ -117,30 +104,8 @@ def _principal_ideal_basis(
         return sp.expand(rem)
 
     def poly_to_vec_gb(expr: sp.Expr) -> np.ndarray:
-        # reduce the another expr for three generators: poly, x^l+1, y^m+1
-
         rem = reduce_mod_A(expr)
-        vec = np.zeros(len(monomials), dtype=np.uint8)
-        if rem == 0:
-            return vec
-        terms = sp.Add.make_args(rem) if rem.is_Add else [rem]
-        for term in terms:
-            if term.is_number:
-                if int(term) % 2 == 1:
-                    try:
-                        idx = monomials.index(1)
-                        vec[idx] = 1
-                    except ValueError:
-                        pass
-            else:
-                coeff, mon_part = term.as_coeff_Mul()
-                if int(coeff) % 2 == 1:
-                    try:
-                        idx = monomials.index(mon_part)
-                        vec[idx] = 1
-                    except ValueError:
-                        pass
-        return vec
+        return poly_to_vector(rem, monomials, l, m)
 
     # Build a spanning set using the Groebner generators of I
     gens = [gp.as_expr() if hasattr(gp, 'as_expr') else gp for gp in I.polys]
@@ -179,27 +144,7 @@ def _ideal_span_from_generators(
 
     def poly_to_vec_gb(expr: sp.Expr) -> np.ndarray:
         rem = reduce_mod_A(expr)
-        vec = np.zeros(len(monomials), dtype=np.uint8)
-        if rem == 0:
-            return vec
-        terms = sp.Add.make_args(rem) if rem.is_Add else [rem]
-        for term in terms:
-            if term.is_number:
-                if int(term) % 2 == 1:
-                    try:
-                        idx = monomials.index(1)
-                        vec[idx] = 1
-                    except ValueError:
-                        pass
-            else:
-                coeff, mon_part = term.as_coeff_Mul()
-                if int(coeff) % 2 == 1:
-                    try:
-                        idx = monomials.index(mon_part)
-                        vec[idx] = 1
-                    except ValueError:
-                        pass
-        return vec
+        return poly_to_vector(rem, monomials, l, m)
 
     N = len(monomials)
     cols: List[np.ndarray] = []
@@ -457,8 +402,6 @@ def compute_tor_1(
 def _polynomial_to_block_indicator(poly: sp.Expr, l: int, m: int) -> np.ndarray:
     """Return l x m binary array marking qubit positions touched by poly."""
 
-    # WARNING Need Check
-
     block = np.zeros((l, m), dtype=np.uint8)
     if poly == 0:
         return block
@@ -467,20 +410,9 @@ def _polynomial_to_block_indicator(poly: sp.Expr, l: int, m: int) -> np.ndarray:
     vec = poly_to_vector(poly, basis, l, m)
 
     for idx in np.where(vec == 1)[0]:
-        a = idx // m
-        b = idx % m
-        block[a, b] = 1
-
-    # # BUG
-    # # Why the correct block but fails for the logical operator
-    # for idx in np.where(vec == 1)[0]:
-    #     monom = basis[idx]
-    #     monom_poly = sp.Poly(monom, x, y, modulus=2)
-    #     monoms = monom_poly.monoms()
-    #     if not monoms:
-    #         continue
-    #     a, b = monoms[0]
-    #     block[int(a) % l, int(b) % m] = 1
+        row = int(idx // m) % l
+        col = int(idx % m)
+        block[row, col] = 1
 
     return block
 
@@ -491,21 +423,9 @@ def _poly_to_exponent_pairs(poly: sp.Expr, l: int, m: int) -> List[Tuple[int, in
     basis = _monomial_basis(l, m)
     vec = poly_to_vector(poly, basis, l, m)
     pairs: List[Tuple[int, int]] = []
-    # 2025/09/23
-    # NOTE: bug is fixed here for the mimatch between the monomial basis order
     for idx in np.where(vec == 1)[0]:
-        monom = basis[idx]
-        poly_monom = sp.Poly(monom, x, y, modulus=2)
-        monoms = poly_monom.monoms()
-        if not monoms:
-            pairs.append((0, 0))
-            continue
-        exponents = monoms[0]
-        if len(exponents) == 0:
-            pairs.append((0, 0))
-            continue
-        a = int(exponents[0]) % l
-        b = int(exponents[1]) % m
+        a = int(idx // m) % l
+        b = int(idx % m)
         pairs.append((a, b))
     return pairs
 
@@ -611,6 +531,7 @@ def verify_logical_z_equivalence(
     g_terms = _poly_to_exponent_pairs(g_poly, l, m)
 
     Hx, Hz = get_BB_Hx_Hz(f_terms, g_terms, l, m)
+
     code = css_code(hx=Hx, hz=Hz, name=f"BB_{l}x{m}")
 
     lz_matrix = code.lz.toarray().astype(np.uint8)
