@@ -13,8 +13,11 @@ import numpy as np
 
 
 def _shift_mat(n: int, k: int) -> np.ndarray:
-    """Return n x n cyclic shift-by-k matrix over GF(2) as uint8."""
-    return np.roll(np.identity(n, dtype=np.uint8), int(k) % n, axis=1)
+    """Return n x n cyclic left shift-by-k matrix over GF(2) as uint8.
+    
+    The definition is consistent with the polynomial to qubit mapping.
+    """
+    return np.roll(np.identity(n, dtype=np.uint8), -int(k) % n, axis=1)
 
 
 def _parse_trivariate_terms(

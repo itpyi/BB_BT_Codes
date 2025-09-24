@@ -16,6 +16,7 @@ import numpy as np
 import sympy as sp
 from sympy import symbols, expand
 import ldpc.mod2 as mod2
+from scipy import sparse
 from typing import Any, Dict, List, Optional, Tuple
 
 from bivariate_bicycle_codes import get_BB_Hx_Hz
@@ -38,14 +39,13 @@ def _get_ring_groebner(l: int, m: int) -> sp.GroebnerBasis:
 
 def _monomial_basis(l: int, m: int) -> List[sp.Expr]:
     """Return ordered basis [x^i y^j] with 0 <= i < l, 0 <= j < m."""
+
+    # Ascending lex / row-major order: (0,0), (0,1), ..., (l-1, m-1)
     return [x**i * y**j for i in range(l) for j in range(m)]
 
 def setup_ring(l: int, m: int):
     """Setup polynomial ring GF(2)[x,y] with periodic boundary x^l+1, y^m+1"""
-    monomials = []
-    for i in range(l):
-        for j in range(m):
-            monomials.append(x**i * y**j)
+    monomials = _monomial_basis(l, m)
 
     print(f"Ring: GF(2)[x,y] with {len(monomials)} monomials")
     print(f"Boundary conditions: x^{l} = 1, y^{m} = 1")
@@ -65,21 +65,10 @@ def poly_to_vector(poly, monomials, l: int, m: int):
         return vector
     terms = sp.Add.make_args(poly_reduced) if poly_reduced.is_Add else [poly_reduced]
     for term in terms:
-        if term.is_number:
-            if int(term) % 2 == 1:
-                try:
-                    idx = monomials.index(1)
-                    vector[idx] = 1
-                except ValueError:
-                    pass
-        else:
-            coeff, monom_part = term.as_coeff_Mul()
-            if int(coeff) % 2 == 1:
-                try:
-                    idx = monomials.index(monom_part)
-                    vector[idx] = 1
-                except ValueError:
-                    pass
+        coeff, monom_part = term.as_coeff_Mul()
+        if int(coeff) % 2 == 1:
+            idx = monomials.index(monom_part)
+            vector[idx] = 1
     return vector
 
 def vector_to_poly(vector, monomials):
@@ -91,201 +80,123 @@ def vector_to_poly(vector, monomials):
     return poly
 
 
-def _row_space_basis(matrix: np.ndarray) -> np.ndarray:
-    """Return a row-echelon basis for the row space of `matrix` over GF(2)."""
+def _multiplication_matrix(
+    poly: sp.Expr, monomials: List[sp.Expr], l: int, m: int
+) -> np.ndarray:
+    """Return matrix for multiplication by `poly` in the ambient ring."""
 
-    if matrix.size == 0 or matrix.shape[0] == 0:
-        return np.zeros((0, matrix.shape[1] if matrix.ndim == 2 else 0), dtype=np.uint8)
+    N = len(monomials)
+    M = np.zeros((N, N), dtype=np.uint8)
+    for j, mon_j in enumerate(monomials):
+        prod = expand(mon_j * poly)
+        M[:, j] = poly_to_vector(prod, monomials, l, m)
+    return M
 
-    matrix_uint8 = np.asarray(matrix, dtype=np.uint8)
-    rref, _, _, _ = mod2.row_echelon(matrix_uint8, full=True)
-    if not isinstance(rref, np.ndarray):
-        rref = rref.toarray()
 
-    basis_rows = [row.astype(np.uint8) % 2 for row in rref if np.any(row)]
-    if not basis_rows:
-        return np.zeros((0, matrix.shape[1]), dtype=np.uint8)
+def _solve_linear_mod2(A: np.ndarray, b: np.ndarray) -> Optional[np.ndarray]:
+    """Solve A x = b over GF(2). Returns one solution or None if inconsistent."""
 
-    return np.stack(basis_rows).astype(np.uint8)
+    A = (A.astype(np.uint8) % 2).copy()
+    b = (b.astype(np.uint8) % 2).copy().reshape(-1)
+    n_rows, n_cols = A.shape
+    aug = np.concatenate([A, b.reshape(-1, 1)], axis=1).astype(np.uint8)
+
+    row = 0
+    pivots: List[int] = []
+    for col in range(n_cols):
+        pivot = None
+        for r in range(row, n_rows):
+            if aug[r, col] & 1:
+                pivot = r
+                break
+        if pivot is None:
+            continue
+        if pivot != row:
+            aug[[row, pivot]] = aug[[pivot, row]]
+        for r in range(n_rows):
+            if r != row and (aug[r, col] & 1):
+                aug[r, :] ^= aug[row, :]
+        pivots.append(col)
+        row += 1
+        if row == n_rows:
+            break
+
+    for r in range(n_rows):
+        if not aug[r, :n_cols].any() and (aug[r, n_cols] & 1):
+            return None
+
+    x = np.zeros(n_cols, dtype=np.uint8)
+    for r in range(min(len(pivots), n_rows)):
+        col = pivots[r]
+        s = 0
+        for c in range(col + 1, n_cols):
+            if aug[r, c] & 1:
+                s ^= x[c]
+        x[col] = (aug[r, n_cols] ^ s) & 1
+    return x
+
+
+def _row_basis_from_polynomials(
+    polys: List[sp.Expr], monomials: List[sp.Expr], l: int, m: int
+) -> Tuple[np.ndarray, List[sp.Expr]]:
+    """Return independent row basis vectors/polys for given generators in R."""
+
+    if not polys:
+        return np.zeros((0, len(monomials)), dtype=np.uint8), []
+
+    vectors = [poly_to_vector(poly, monomials, l, m) for poly in polys]
+    stacked = np.vstack(vectors).astype(np.uint8)
+
+    basis_sparse = mod2.row_basis(stacked)
+    if hasattr(basis_sparse, "toarray"):
+        basis_matrix = basis_sparse.toarray().astype(np.uint8)
+    else:
+        basis_matrix = np.asarray(basis_sparse, dtype=np.uint8)
+
+    if basis_matrix.size == 0:
+        basis_matrix = np.zeros((0, len(monomials)), dtype=np.uint8)
+
+    basis_polys = [vector_to_poly(row, monomials) for row in basis_matrix]
+    return basis_matrix, basis_polys
+
 
 
 def _principal_ideal_basis(
     poly: sp.Expr, monomials: List[sp.Expr], l: int, m: int
 ) -> Tuple[np.ndarray, List[sp.Expr]]:
-    """Return basis vectors and polynomials spanning the principal ideal (poly)
-    in R = GF(2)[x,y]/(x^l+1, y^m+1), using Gröbner reduction modulo the ring
-    relations only (not including poly as a reducer).
-
-    The ideal (poly) in R is the image of the linear map r -> r*poly (mod A),
-    so we compute columns v_b = vec(b*poly) for each basis monomial b and then
-    return a row-basis for the column space.
-    """
+    """Return basis vectors/polys spanning the principal ideal (poly) in R modulo periods."""
 
     if poly == 0:
         zero_basis = np.zeros((0, len(monomials)), dtype=np.uint8)
         return zero_basis, []
 
-    # Gröbner bases: ambient relations and full ideal with poly
-    G_rel = _get_ring_groebner(l, m)
-    I = sp.groebner([sp.expand(poly), x**l + 1, y**m + 1], [x, y], modulus=2)
+    ambient = [x**l + 1, y**m + 1]
+    ideal_generators = [sp.expand(poly), *ambient]
 
-    def reduce_mod_A(expr: sp.Expr) -> sp.Expr:
-        _, rem = G_rel.reduce(sp.expand(expr))
-        return sp.expand(rem)
+    gb = sp.groebner(ideal_generators, x, y, modulus=2, order="lex")
+    basis_polys = [sp.expand(g.as_expr()) for g in gb.polys]
 
-    def poly_to_vec_gb(expr: sp.Expr) -> np.ndarray:
-        rem = reduce_mod_A(expr)
-        vec = np.zeros(len(monomials), dtype=np.uint8)
-        if rem == 0:
-            return vec
-        terms = sp.Add.make_args(rem) if rem.is_Add else [rem]
-        for term in terms:
-            if term.is_number:
-                if int(term) % 2 == 1:
-                    try:
-                        idx = monomials.index(1)
-                        vec[idx] = 1
-                    except ValueError:
-                        pass
-            else:
-                coeff, mon_part = term.as_coeff_Mul()
-                if int(coeff) % 2 == 1:
-                    try:
-                        idx = monomials.index(mon_part)
-                        vec[idx] = 1
-                    except ValueError:
-                        pass
-        return vec
+    return _row_basis_from_polynomials(basis_polys, monomials, l, m)
 
-    # Build a spanning set using the Groebner generators of I
-    gens = [gp.as_expr() if hasattr(gp, 'as_expr') else gp for gp in I.polys]
-
-    N = len(monomials)
-    cols: List[np.ndarray] = []
-    for mon in monomials:
-        for ggen in gens:
-            cols.append(poly_to_vec_gb(mon * ggen))
-
-    M = np.stack(cols, axis=1) if cols else np.zeros((N, 0), dtype=np.uint8)
-
-    basis_matrix = _row_space_basis(M.T)
-    basis_polys = [vector_to_poly(row, monomials) for row in basis_matrix]
-    return basis_matrix, basis_polys
-
-def _ideal_span_from_generators(
-    gens: List[sp.Expr], monomials: List[sp.Expr], l: int, m: int
-) -> Tuple[np.ndarray, List[sp.Expr]]:
-    """Given generators of an ideal in k[x,y], return the GF(2) row-basis of its
-    image in R = GF(2)[x,y]/(x^l+1, y^m+1), by multiplying gens with the ring
-    monomial basis and reducing by A only.
-    """
-    G_rel = _get_ring_groebner(l, m)
-
-    def reduce_mod_A(expr: sp.Expr) -> sp.Expr:
-        _, rem = G_rel.reduce(sp.expand(expr))
-        return sp.expand(rem)
-
-    def poly_to_vec_gb(expr: sp.Expr) -> np.ndarray:
-        rem = reduce_mod_A(expr)
-        vec = np.zeros(len(monomials), dtype=np.uint8)
-        if rem == 0:
-            return vec
-        terms = sp.Add.make_args(rem) if rem.is_Add else [rem]
-        for term in terms:
-            if term.is_number:
-                if int(term) % 2 == 1:
-                    try:
-                        idx = monomials.index(1)
-                        vec[idx] = 1
-                    except ValueError:
-                        pass
-            else:
-                coeff, mon_part = term.as_coeff_Mul()
-                if int(coeff) % 2 == 1:
-                    try:
-                        idx = monomials.index(mon_part)
-                        vec[idx] = 1
-                    except ValueError:
-                        pass
-        return vec
-
-    N = len(monomials)
-    cols: List[np.ndarray] = []
-    for mon in monomials:
-        for g in gens:
-            cols.append(poly_to_vec_gb(mon * g))
-    M = np.stack(cols, axis=1) if cols else np.zeros((N, 0), dtype=np.uint8)
-    basis_matrix = _row_space_basis(M.T)
-    basis_polys = [vector_to_poly(row, monomials) for row in basis_matrix]
-    return basis_matrix, basis_polys
 
 def _intersection_ideal_basis_via_elimination(
     f_poly: sp.Expr, g_poly: sp.Expr, monomials: List[sp.Expr], l: int, m: int
 ) -> Tuple[np.ndarray, List[sp.Expr]]:
-    """Compute a basis for (I ∩ J) in R using elimination:
-    I = ⟨f, x^l+1, y^m+1⟩, J = ⟨g, x^l+1, y^m+1⟩.
-    In k[x,y,t], let K = ⟨t*I, (1+t)*J⟩ (since char=2, 1−t=1+t). Then
-    (I ∩ J) = K ∩ k[x,y]. Extract polynomials from a Groebner basis of K that
-    do not involve t, then span in R.
-    """
+    """Compute generators for (⟨f, periods⟩ ∩ ⟨g, periods⟩) in R using elimination."""
+
     t = sp.symbols('t')
-    gens_I = [sp.expand(f_poly), x**l + 1, y**m + 1]
-    gens_J = [sp.expand(g_poly), x**l + 1, y**m + 1]
-    K_gens = [t*gi for gi in gens_I] + [(1 + t)*gj for gj in gens_J]
-    G = sp.groebner(K_gens, [t, x, y], order='lex', modulus=2)
-    inter_gens = []
-    for gp in G.polys:
-        expr = gp.as_expr() if hasattr(gp, 'as_expr') else gp
-        if not expr.has(t):
-            inter_gens.append(expr)
-    # Fallback: if no t-free generators are found, use simple product to avoid empty
-    if not inter_gens:
-        inter_gens = [sp.expand(f_poly)*sp.expand(g_poly)]
-    return _ideal_span_from_generators(inter_gens, monomials, l, m)
+    ambient = [x**l + 1, y**m + 1]
+    gens_I = [sp.expand(f_poly), *ambient]
+    gens_J = [sp.expand(g_poly), *ambient]
+    K_gens = [t * gi for gi in gens_I] + [(1 + t) * gj for gj in gens_J]
+    gb = sp.groebner(K_gens, t, x, y, order='lex', modulus=2)
 
+    inter_poly = [sp.expand(g.as_expr()) for g in gb.polys if not g.as_expr().has(t)]
+    if not inter_poly:
+        inter_poly = [sp.expand(f_poly * g_poly)]
 
-def _subspace_intersection(
-    A: np.ndarray, B: np.ndarray
-) -> np.ndarray:
-    """Return row-space basis for the intersection of row spaces of A and B."""
+    return _row_basis_from_polynomials(inter_poly, monomials, l, m)
 
-    if A.size == 0 or B.size == 0:
-        return np.zeros((0, A.shape[1] if A.size else B.shape[1]), dtype=np.uint8)
-
-    A_uint8 = np.asarray(A, dtype=np.uint8)
-    B_uint8 = np.asarray(B, dtype=np.uint8)
-
-    N = A_uint8.shape[1]
-    if B_uint8.shape[1] != N:
-        raise ValueError("Subspaces must share the same ambient dimension")
-
-    augmented = np.hstack([A_uint8.T, B_uint8.T])
-    nullspace_vecs = mod2.nullspace(augmented)
-
-    intersection_vectors: List[np.ndarray] = []
-
-    for vec in nullspace_vecs:
-        if hasattr(vec, "toarray"):
-            gamma = vec.toarray().astype(np.uint8).flatten() % 2
-        else:
-            gamma = np.asarray(vec, dtype=np.uint8).flatten() % 2
-
-        alpha = gamma[: A_uint8.shape[0]]
-        if not np.any(alpha):
-            continue
-
-        combo = np.zeros(N, dtype=np.uint8)
-        for idx, coeff in enumerate(alpha):
-            if coeff % 2 == 1:
-                combo ^= A_uint8[idx]
-
-        if np.any(combo):
-            intersection_vectors.append(combo)
-
-    if not intersection_vectors:
-        return np.zeros((0, N), dtype=np.uint8)
-
-    return _row_space_basis(np.stack(intersection_vectors))
 
 def compute_ann_f_matrix(f_poly, monomials, l: int, m: int):
     """Compute Ann(f) as matrix M_f where rows are generators"""
@@ -332,6 +243,23 @@ def compute_ann_f_matrix(f_poly, monomials, l: int, m: int):
     for i, gen in enumerate(ann_f_polys):
         print(f"  Ann(f)[{i}]: {gen}")
 
+    # VERIFICATION: Check that f * Ann(f) = 0 in the polynomial ring
+    print(f"\n=== VERIFICATION: f * Ann(f) = 0 ===")
+    all_products_zero = True
+    for i, h_poly in enumerate(ann_f_polys):
+        product = expand(f_poly * h_poly)
+        product_reduced = apply_periodic_boundary(product, l, m)
+        if product_reduced != 0:
+            print(f"  ERROR: f * Ann(f)[{i}] = {product_reduced} ≠ 0")
+            all_products_zero = False
+        else:
+            print(f"  ✓ f * Ann(f)[{i}] = 0")
+    
+    if all_products_zero:
+        print(f"✓ VERIFIED: All f * Ann(f) products are zero in the polynomial ring")
+    else:
+        print(f"✗ VERIFICATION FAILED: Some f * Ann(f) products are non-zero")
+
     return M_f, ann_f_polys
 
 def compute_g_ann_f_matrix(g_poly, M_f, ann_f_polys, monomials, l: int, m: int):
@@ -346,11 +274,14 @@ def compute_g_ann_f_matrix(g_poly, M_f, ann_f_polys, monomials, l: int, m: int):
     for i, h_poly in enumerate(ann_f_polys):
         gh_poly = expand(g_poly * h_poly)
         gh_vec = poly_to_vector(gh_poly, monomials, l, m)
+        gh_poly_reduced = vector_to_poly(gh_vec, monomials)
 
         g_ann_f_matrix.append(gh_vec)
-        g_ann_f_polys.append(gh_poly)
+        g_ann_f_polys.append(gh_poly_reduced)
 
-        print(f"  g*Ann(f)[{i}]: ({g_poly}) * ({h_poly}) = {gh_poly}")
+        print(
+            f"  g*Ann(f)[{i}]: ({g_poly}) * ({h_poly}) ≡ {gh_poly_reduced}"
+        )
 
     if g_ann_f_matrix:
         M_g = np.vstack(g_ann_f_matrix).astype(np.uint8)
@@ -361,129 +292,175 @@ def compute_g_ann_f_matrix(g_poly, M_f, ann_f_polys, monomials, l: int, m: int):
 
     return M_g, g_ann_f_polys
 
-def compute_quotient_matrix(M_f, M_g, monomials, verbose: bool = True):
-    """Compute quotient M_f/M_g using Gaussian elimination with proper sparse handling"""
+def compute_quotient_matrix(
+    M_f: np.ndarray,
+    M_g: np.ndarray,
+    monomials: List[sp.Expr],
+    *,
+    label: str = "M_f/M_g",
+    verbose: bool = True,
+):
+    """Compute the quotient M_f/M_g using a stacked sparse matrix and pivot rows."""
 
     if verbose:
-        print(f"\n=== Computing Quotient M_f/M_g using Gaussian elimination ===")
+        print(f"\n=== {label} ===")
         print(f"M_f shape: {M_f.shape}")
         print(f"M_g shape: {M_g.shape}")
 
-    if M_f.shape[0] == 0:
+    if M_f.ndim == 1:
+        M_f = M_f.reshape(1, -1)
+    if M_g.ndim == 1:
+        M_g = M_g.reshape(1, -1)
+
+    if M_f.size == 0:
         if verbose:
-            print("M_f is empty, quotient is trivial")
+            print("Ann matrix is empty ⇒ trivial quotient")
+        cols = M_g.shape[1] if M_g.size else 0
+        return np.zeros((0, cols), dtype=np.uint8), []
+
+    if M_g.size == 0:
+        if verbose:
+            print("g·Ann matrix is empty ⇒ quotient equals Ann matrix")
+        rows = [row for row in M_f if np.any(row)]
+        polys = [vector_to_poly(row, monomials) for row in rows]
+        return np.asarray(rows, dtype=np.uint8), polys
+
+    M_g_sparse = sparse.csr_matrix(M_g, dtype=np.uint8)
+    M_f_sparse = sparse.csr_matrix(M_f, dtype=np.uint8)
+
+    max_cols = max(M_g_sparse.shape[1], M_f_sparse.shape[1])
+    if M_g_sparse.shape[1] < max_cols:
+        pad = sparse.csr_matrix((M_g_sparse.shape[0], max_cols - M_g_sparse.shape[1]), dtype=np.uint8)
+        M_g_sparse = sparse.hstack([M_g_sparse, pad])
+    if M_f_sparse.shape[1] < max_cols:
+        pad = sparse.csr_matrix((M_f_sparse.shape[0], max_cols - M_f_sparse.shape[1]), dtype=np.uint8)
+        M_f_sparse = sparse.hstack([M_f_sparse, pad])
+
+    log_stack = sparse.vstack([M_g_sparse, M_f_sparse])
+    log_stack_dense = log_stack.toarray().astype(np.uint8)
+
+    rank_Mg = mod2.rank(M_g)
+    if verbose:
+        print(f"Rank(M_g) = {rank_Mg}")
+
+    # Follow the ldpc package method to find pivot rows
+    pivot_rows = mod2.pivot_rows(log_stack_dense)
+    if len(pivot_rows) <= rank_Mg:
+        if verbose:
+            print("No independent rows beyond g·Ann ⇒ quotient is trivial")
         return np.zeros((0, M_f.shape[1]), dtype=np.uint8), []
 
-    if M_g.shape[0] == 0:
-        if verbose:
-            print("M_g is empty, quotient is just M_f")
-        non_zero_rows = []
-        non_zero_polys = []
-        for row in M_f:
-            if np.any(row):
-                non_zero_rows.append(row)
-                non_zero_polys.append(vector_to_poly(row, monomials))
-        return np.array(non_zero_rows, dtype=np.uint8), non_zero_polys
+    ann_pivots = pivot_rows[rank_Mg:]
+    quotient_ops = log_stack_dense[ann_pivots]
 
-    # Use simple rank-based approach to avoid sparse array complexity
-    quotient_rows = []
-    quotient_polys = []
-
-    # Track the span of g*Ann(f) augmented with the quotient rows we keep
-    # BUG FIXED
-    # The quotient loop now keeps a mutable basis starting from M_g. Every time we
-    # accept an Ann(f) row, it gets appended to this basis and the stored rank is
-    # updated. Later rows are tested against the combined span rather than the
-    # original M_g, so any component already generated by g·Ann(f) (or by quotient
-    # rows we have already kept) is filtered out. This prevents overcounting
-    # logical operators.
-    basis_matrix = M_g.copy()
-    rank_basis = mod2.rank(basis_matrix)
+    quotient_polys = [vector_to_poly(row, monomials) for row in quotient_ops]
     if verbose:
-        print(f"Rank of M_g: {rank_basis}")
+        for idx, poly in enumerate(quotient_polys):
+            vec = quotient_ops[idx]
+            print(f"  Q[{idx}] polynomial: {poly}")
+            print(f"  Q[{idx}] vector: {vec.tolist()}")
 
-    # For each row in M_f, check if it's linearly independent from current basis
-    for i, f_row in enumerate(M_f):
-        if not np.any(f_row):
-            continue  # Skip zero rows
-
-        # Test if adding f_row expands the current span
-        test_matrix = np.vstack([basis_matrix, f_row.reshape(1, -1)])
-        rank_test = mod2.rank(test_matrix)
-
-        if rank_test > rank_basis:
-            # f_row adds a new coset representative to the quotient basis
-            quotient_rows.append(f_row)
-            poly = vector_to_poly(f_row, monomials)
-            quotient_polys.append(poly)
-            if verbose:
-                print(f"  Quotient[{len(quotient_rows)-1}]: {poly} (independent)")
-            basis_matrix = test_matrix
-            rank_basis = rank_test
-        else:
-            if verbose:
-                poly = vector_to_poly(f_row, monomials)
-                print(f"  Skipping M_f[{i}]: {poly} (dependent on M_g)")
-
-    quotient_matrix = np.array(quotient_rows, dtype=np.uint8) if quotient_rows else np.zeros((0, M_f.shape[1]), dtype=np.uint8)
-
-    if verbose:
-        print(f"Final quotient matrix shape: {quotient_matrix.shape}")
-        print(f"Quotient dimension: {len(quotient_polys)}")
-
-    return quotient_matrix, quotient_polys
+    return quotient_ops.astype(np.uint8), quotient_polys
 
 
 def compute_tor_1(
     f_str: str, g_str: str, l: int, m: int
 ) -> Dict[str, Any]:
-    """Compute Tor_1^R(R/(f), R/(g)) ≅ (I ∩ J)/(I·J) for R = GF(2)[x,y]/(x^l+1, y^m+1).
-
-    Uses Gröbner-based principal ideals for I = ⟨f, x^l+1, y^m+1⟩ and
-    J = ⟨g, x^l+1, y^m+1⟩. The intersection and product spaces are handled in the
-    finite-dimensional vector space over GF(2) induced by monomials {x^i y^j}.
-    Verbose prints of intermediate basis sizes are removed.
+    """Compute (I ∩ J)/(IJ) ⊂ R with I=⟨f, periods⟩, J=⟨g, periods⟩ using Gröbner bases.
+    
+    Current method is to calculate the intersection ideal and product ideal separately,
+    Use G_{IJ} to find standard monomials by R/G_{IJ}, and find the (I ∩ J) reduced in that basis
     """
+    
 
     f_poly = sp.sympify(f_str)
     g_poly = sp.sympify(g_str)
     monomials = _monomial_basis(l, m)
+    periods = [x**l + 1, y**m + 1]
 
-    # Principal ideals via Gröbner reduction
-    ideal_f_matrix, ideal_f_polys = _principal_ideal_basis(f_poly, monomials, l, m)
-    ideal_g_matrix, ideal_g_polys = _principal_ideal_basis(g_poly, monomials, l, m)
+    # Step 1: Groebner bases for the principal ideals I and J inside R
+    ideal_f_matrix, ideal_f_basis = _principal_ideal_basis(f_poly, monomials, l, m)
+    ideal_g_matrix, ideal_g_basis = _principal_ideal_basis(g_poly, monomials, l, m)
 
-    # Intersection (f) ∩ (g) via elimination-based ideal intersection
-    intersection_matrix, intersection_polys = _intersection_ideal_basis_via_elimination(
+    # Step 2: Intersection ideal via elimination variable t
+    intersection_matrix, intersection_basis = _intersection_ideal_basis_via_elimination(
         f_poly, g_poly, monomials, l, m
     )
 
-    # Product ideal (f)(g) = (f * g)
-    product_poly = expand(f_poly * g_poly)
-    product_matrix, product_polys = _principal_ideal_basis(product_poly, monomials, l, m)
+    # Step 3: Product ideal IJ and its Groebner basis
+    gens_I = [sp.expand(f_poly), *periods]
+    gens_J = [sp.expand(g_poly), *periods]
+    product_generators = [sp.expand(gi * gj) for gi in gens_I for gj in gens_J]
+    product_gb = sp.groebner(product_generators + periods, x, y, modulus=2, order="lex")
+    product_basis_polys = [sp.expand(p.as_expr()) for p in product_gb.polys]
+    product_matrix, product_basis = _row_basis_from_polynomials(
+        product_basis_polys, monomials, l, m
+    )
 
-    # Torsion quotient (I ∩ J)/(I·J)
-    tor_matrix, tor_polys = compute_quotient_matrix(intersection_matrix, product_matrix, monomials, verbose=False)
+    # Helper utilities for Step 4
+    def _exp_tuple(expr: sp.Expr) -> Tuple[int, int]:
+        poly = sp.Poly(expr, x, y, modulus=2)
+        monoms = poly.monoms()
+        if not monoms:
+            return (0, 0)
+        exp = monoms[0]
+        return int(exp[0]), int(exp[1])
+
+    def _divides(div: Tuple[int, int], target: Tuple[int, int]) -> bool:
+        return div[0] <= target[0] and div[1] <= target[1]
+
+    # Leading monomials of IJ
+    leading_exps: List[Tuple[int, int]] = []
+    for poly in product_gb.polys:
+        poly_obj = sp.Poly(poly.as_expr(), x, y, modulus=2)
+        lm = poly_obj.LM()
+        leading_exps.append(tuple(int(e) for e in lm))
+
+    # Standard monomial basis B of R/IJ (subset of ambient monomials)
+    basis_B: List[sp.Expr] = []
+    for mon in monomials:
+        exp_mon = _exp_tuple(mon)
+        if any(_divides(lm, exp_mon) for lm in leading_exps if lm != (0, 0)):
+            continue
+        basis_B.append(mon)
+
+    # Step 4: Generate span of (I ∩ J)/(IJ)
+    candidate_polys: List[sp.Expr] = []
+    seen_keys: set[str] = set()
+    for h in intersection_basis:
+        h_expr = sp.expand(h)
+        for b in basis_B:
+            candidate = sp.expand(b * h_expr)
+            _, remainder = product_gb.reduce(candidate)
+            remainder_expr = apply_periodic_boundary(remainder, l, m)
+            if remainder_expr == 0:
+                continue
+            key = sp.srepr(sp.expand(remainder_expr))
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            candidate_polys.append(sp.expand(remainder_expr))
+
+    # Row basis is required to eliminate duplicates
+    tor_matrix, tor_basis = _row_basis_from_polynomials(candidate_polys, monomials, l, m)
 
     return {
         "ideal_f_matrix": ideal_f_matrix,
-        "ideal_f_basis": ideal_f_polys,
+        "ideal_f_basis": ideal_f_basis,
         "ideal_g_matrix": ideal_g_matrix,
-        "ideal_g_basis": ideal_g_polys,
+        "ideal_g_basis": ideal_g_basis,
         "intersection_matrix": intersection_matrix,
-        "intersection_basis": intersection_polys,
+        "intersection_basis": intersection_basis,
         "product_matrix": product_matrix,
-        "product_basis": product_polys,
+        "product_basis": product_basis,
         "tor_matrix": tor_matrix,
-        "tor_basis": tor_polys,
-        "dimension": len(tor_polys),
+        "tor_basis": tor_basis,
+        "dimension": len(tor_basis),
     }
 
 
 def _polynomial_to_block_indicator(poly: sp.Expr, l: int, m: int) -> np.ndarray:
     """Return l x m binary array marking qubit positions touched by poly."""
-
-    # WARNING Need Check
 
     block = np.zeros((l, m), dtype=np.uint8)
     if poly == 0:
@@ -493,9 +470,9 @@ def _polynomial_to_block_indicator(poly: sp.Expr, l: int, m: int) -> np.ndarray:
     vec = poly_to_vector(poly, basis, l, m)
 
     for idx in np.where(vec == 1)[0]:
-        a = idx // m
-        b = idx % m
-        block[a, b] = 1
+        row = int(idx // m) % l
+        col = int(idx % m)
+        block[row, col] = 1
 
     return block
 
@@ -507,7 +484,7 @@ def _poly_to_exponent_pairs(poly: sp.Expr, l: int, m: int) -> List[Tuple[int, in
     vec = poly_to_vector(poly, basis, l, m)
     pairs: List[Tuple[int, int]] = []
     for idx in np.where(vec == 1)[0]:
-        a = int(idx // m)
+        a = int(idx // m) % l
         b = int(idx % m)
         pairs.append((a, b))
     return pairs
@@ -547,8 +524,36 @@ def build_qubit_logical_indicator(
     }
 
 
+def build_torsion_logical_indicator(
+    torsion_poly: sp.Expr,
+    f_multiplier: sp.Expr,
+    g_multiplier: sp.Expr,
+    l: int,
+    m: int,
+) -> Dict[str, Any]:
+    """Map torsion element to paired qubit support on the two blocks."""
+
+    qubit_tensor = np.zeros((2, l, m), dtype=np.uint8)
+    qubit_tensor[0] = _polynomial_to_block_indicator(f_multiplier, l, m)
+    qubit_tensor[1] = _polynomial_to_block_indicator(g_multiplier, l, m)
+
+    qubit_vector = qubit_tensor.reshape(-1)
+
+    return {
+        "poly": torsion_poly,
+        "block": "torsion",
+        "tensor": qubit_tensor,
+        "vector": qubit_vector,
+        "f_multiplier": f_multiplier,
+        "g_multiplier": g_multiplier,
+    }
+
+
 def compute_logical_qubit_operators(f_str: str, g_str: str, l: int, m: int) -> Dict[str, Any]:
     """Return logical Z operators as qubit occupancy vectors for both blocks."""
+
+    f_poly = sp.sympify(f_str)
+    g_poly = sp.sympify(g_str)
 
     result_f = compute_ann_quotient_matrix(f_str, g_str, l, m)
     result_g = compute_ann_quotient_matrix(g_str, f_str, l, m)
@@ -567,13 +572,43 @@ def compute_logical_qubit_operators(f_str: str, g_str: str, l: int, m: int) -> D
 
     torsion = compute_tor_1(f_str, g_str, l, m)
     torsion_ops = []
+    if torsion["tor_basis"]:
+        monomials = _monomial_basis(l, m)
+        mult_matrix_f = _multiplication_matrix(f_poly, monomials, l, m)
+        mult_matrix_g = _multiplication_matrix(g_poly, monomials, l, m)
+    else:
+        monomials = []
+        mult_matrix_f = None
+        mult_matrix_g = None
+
     for idx, poly in enumerate(torsion["tor_basis"]):
-        entry = build_qubit_logical_indicator(poly, l, m, block="torsion")
+        if mult_matrix_f is None or mult_matrix_g is None:
+            raise RuntimeError("Expected torsion multiplication matrices to be initialized")
+
+        tor_vec = poly_to_vector(poly, monomials, l, m)
+        f_solution = _solve_linear_mod2(mult_matrix_f, tor_vec)
+        g_solution = _solve_linear_mod2(mult_matrix_g, tor_vec)
+
+        if f_solution is None or g_solution is None:
+            raise ValueError(
+                "Failed to express torsion generator as both f-multiple and g-multiple"
+            )
+
+        f_multiplier = vector_to_poly(f_solution, monomials)
+        g_multiplier = vector_to_poly(g_solution, monomials)
+
+        entry = build_torsion_logical_indicator(
+            poly,
+            f_multiplier,
+            g_multiplier,
+            l,
+            m,
+        )
         entry["index"] = idx
         torsion_ops.append(entry)
 
-    # all_vectors = [op["vector"] for op in block1_ops + block2_ops + torsion_ops]
-    all_vectors = [op["vector"] for op in block1_ops + block2_ops]
+    all_vectors = [op["vector"] for op in block1_ops + block2_ops + torsion_ops]
+    # all_vectors = [op["vector"] for op in block1_ops + block2_ops]
     if all_vectors:
         logical_matrix = np.vstack(all_vectors).astype(np.uint8)
         span_rank = mod2.rank(logical_matrix)
@@ -614,6 +649,7 @@ def verify_logical_z_equivalence(
     g_terms = _poly_to_exponent_pairs(g_poly, l, m)
 
     Hx, Hz = get_BB_Hx_Hz(f_terms, g_terms, l, m)
+
     code = css_code(hx=Hx, hz=Hz, name=f"BB_{l}x{m}")
 
     lz_matrix = code.lz.toarray().astype(np.uint8)
@@ -629,12 +665,34 @@ def verify_logical_z_equivalence(
 
     z_stab_rank = z_stab_basis.shape[0] if z_stab_basis.size else 0
 
-    poly_entries = logicals["block1"] + logicals["block2"] + logicals.get("torsion", [])
+    # Print full CSS logical Z matrix for inspection
+    if lz_matrix.size:
+        print("CSS logical Z matrix (each row is a binary vector):")
+        for i, row in enumerate(lz_matrix):
+            print(f"  css_logical_z[{i}] = {row}")
+    else:
+        print("CSS logical Z matrix is empty")
+
+    poly_entries = logicals["block1"] + logicals["block2"] + logicals["torsion"]
+    # poly_entries = logicals["block1"] + logicals["block2"]
+    
+    # DEBUG: Show poly_entries structure and shape
+    print(f"DEBUG: len(logicals['block1']): {len(logicals['block1'])}")
+    print(f"DEBUG: len(logicals['block2']): {len(logicals['block2'])}")
+    print(f"DEBUG: len(logicals.get('torsion', [])): {len(logicals.get('torsion', []))}")
+    print(f"DEBUG: total poly_entries length: {len(poly_entries)}")
+    if poly_entries:
+        print(f"DEBUG: first poly_entry vector shape: {poly_entries[0]['vector'].shape}")
+        print(f"DEBUG: poly_entries structure: list of {len(poly_entries)} entries, each with 'vector' key")
+    else:
+        print(f"DEBUG: poly_entries is empty")
+
     poly_matrix = (
         np.vstack([entry["vector"] for entry in poly_entries]).astype(np.uint8)
         if poly_entries
         else np.zeros((0, Hz.shape[1]), dtype=np.uint8)
     )
+
 
     css_stack = (
         np.vstack([z_stab_basis, lz_matrix])
@@ -648,13 +706,17 @@ def verify_logical_z_equivalence(
     )
     # rank(css ∪ Z)=42, rank(poly ∪ Z)=45, rank(union)=54, rank(Z stabilizer)=30
     # 2025/09/20
-    # BUG! Why rank_poly - rank_Z is larger than the rank of the poly itself?
+    # NOTE: rank_poly - rank_Z (= 15) is actually < rank_poly_alone (= 16)
+    # This is expected: some polynomial vectors may be linearly dependent on Z stabilizers
+    print(f"DEBUG: css_stack shape: {css_stack.shape}")
+    print(f"DEBUG: poly_stack shape: {poly_stack.shape}")
+    
     rank_css = mod2.rank(css_stack)
     rank_poly = mod2.rank(poly_stack)
     rank_union = (
         mod2.rank(np.vstack([z_stab_basis, lz_matrix, poly_matrix]))
     )
-
+    
     def in_z_stabilizer_span(vec: np.ndarray) -> bool:
         if z_stab_basis.size == 0:
             return not np.any(vec)
@@ -923,8 +985,10 @@ def run_test_examples():
     test_cases = [
         ("1 + x", "1 + y", 3, 3),
         ("1 + x + x*y", "1 + y + x*y", 3, 3),
-        # ("1 + x + x*y", "1 + y + x*y", 9, 9),
+        # ("1 + x + x*y", "1 + y + x*y", 6, 6),
         ("x^3 + y + y^2", "y^3 + x + x^2", 6, 6),
+        # ("x^3 + y + y^2", "y^3 + x + x^2", 12, 12),
+        # ("x+1", "y+1+x^2", 2, 2),
     ]
 
     print("=== Running Test Examples ===")
@@ -951,10 +1015,16 @@ def run_test_examples():
                 print("    vector=", entry["vector"])
 
             print("Logical Z torsion operators (Tor_1):")
-            for entry in logicals["torsion"]:
-                print(f"  index {entry['index']}, poly {entry['poly']}")
-                print("    tensor=", np.array2string(entry["tensor"], separator=", "))
-                print("    vector=", entry["vector"])
+            if logicals["torsion"]:
+                for entry in logicals["torsion"]:
+                    print(f"  index {entry['index']}, poly {entry['poly']}")
+                    if "f_multiplier" in entry and "g_multiplier" in entry:
+                        print(f"    f_multiplier = {entry['f_multiplier']}")
+                        print(f"    g_multiplier = {entry['g_multiplier']}")
+                    print("    tensor=", np.array2string(entry["tensor"], separator=", "))
+                    print("    vector=", entry["vector"])
+            else:
+                print("  (none)")
 
             indep = logicals["independence"]
             print(

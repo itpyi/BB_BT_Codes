@@ -49,6 +49,7 @@ AGENTS.md
 *.stim
 *.npy
 *.txt
+*.sage
 
 test/BB_code_benchmark
 deprecated_code/*
