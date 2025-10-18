@@ -12,6 +12,8 @@ Algorithm:
    - Independent rows form basis for quotient space
 """
 
+import contextlib
+import io
 import numpy as np
 import sympy as sp
 from sympy import symbols, expand
@@ -201,6 +203,56 @@ def _solve_linear_mod2(A: np.ndarray, b: np.ndarray) -> Optional[np.ndarray]:
                 s ^= x[c]
         x[col] = (aug[r, n_cols] ^ s) & 1
     return x
+
+
+def _decompose_vector_over_row_spaces(
+    target: np.ndarray,
+    primary: np.ndarray,
+    secondary: np.ndarray,
+) -> Optional[Tuple[List[int], List[int]]]:
+    """Return indices of primary/secondary rows whose XOR gives `target`.
+
+    The rows of `primary` are treated as the quotient representatives, while `secondary`
+    contains the denominator generators (e.g. g·Ann(f)). If either matrix is empty the
+    corresponding index list is empty. Returns None when `target` is outside the span
+    of the combined row spaces.
+    """
+
+    target_vec = target.astype(np.uint8, copy=False).reshape(-1)
+
+    primary_mat = primary.astype(np.uint8, copy=False)
+    secondary_mat = secondary.astype(np.uint8, copy=False)
+
+    if primary_mat.ndim == 1 and primary_mat.size:
+        primary_mat = primary_mat.reshape(1, -1)
+    if secondary_mat.ndim == 1 and secondary_mat.size:
+        secondary_mat = secondary_mat.reshape(1, -1)
+
+    primary_rows = primary_mat.shape[0] if primary_mat.size else 0
+    secondary_rows = secondary_mat.shape[0] if secondary_mat.size else 0
+
+    if not primary_rows and not secondary_rows:
+        return ([], []) if not np.any(target_vec) else None
+
+    if primary_rows and secondary_rows:
+        combined = np.vstack([primary_mat, secondary_mat]).astype(np.uint8, copy=False)
+    elif primary_rows:
+        combined = primary_mat
+    else:
+        combined = secondary_mat
+
+    solution = _solve_linear_mod2(combined.T.astype(np.uint8, copy=False), target_vec)
+    if solution is None:
+        return None
+
+    solution = solution.reshape(-1) % 2
+    primary_coeffs = solution[:primary_rows] if primary_rows else np.zeros(0, dtype=np.uint8)
+    secondary_coeffs = solution[primary_rows:] if secondary_rows else np.zeros(0, dtype=np.uint8)
+
+    primary_indices = [int(idx) for idx, val in enumerate(primary_coeffs) if val]
+    secondary_indices = [int(idx) for idx, val in enumerate(secondary_coeffs) if val]
+
+    return primary_indices, secondary_indices
 
 
 def _row_basis_from_polynomials(
@@ -538,6 +590,152 @@ def compute_tor_1(
     }
 
 
+def compute_tor_2(
+    f_str: str, g_str: str, l: int, m: int
+) -> Dict[str, Any]:
+    """Return Tor₂ ≅ Ann(fg)/(Ann(f)+Ann(g)) together with qubit/rank data."""
+
+    monomials = _monomial_basis(l, m)
+
+    f_poly = sp.sympify(f_str)
+    g_poly = sp.sympify(g_str)
+    fg_poly = sp.expand(f_poly * g_poly)
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        ann_fg_matrix, ann_fg_basis = compute_ann_f_matrix(fg_poly, monomials, l, m)
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        ann_f_matrix, ann_f_basis = compute_ann_f_matrix(f_poly, monomials, l, m)
+    with contextlib.redirect_stdout(io.StringIO()):
+        ann_g_matrix, ann_g_basis = compute_ann_f_matrix(g_poly, monomials, l, m)
+
+    principal_f_matrix, principal_f_basis = _groebner_row_space([f_poly], monomials, l, m)
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        ann_g_quotient = compute_ann_quotient_matrix(g_str, f_str, l, m)
+    ann_g_quotient_matrix = ann_g_quotient["quotient_matrix"]
+    ann_g_quotient_basis = ann_g_quotient["quotient_basis"]
+
+    if principal_f_matrix.ndim == 1:
+        principal_f_matrix = principal_f_matrix.reshape(1, -1)
+    if ann_g_quotient_matrix.ndim == 1:
+        ann_g_quotient_matrix = ann_g_quotient_matrix.reshape(1, -1)
+
+    combined_basis: List[sp.Expr] = []
+    combined_basis.extend(ann_f_basis)
+    combined_basis.extend(ann_g_basis)
+
+    if combined_basis:
+        with contextlib.redirect_stdout(io.StringIO()):
+            ann_union_matrix, ann_union_basis = _groebner_row_space(
+                combined_basis, monomials, l, m
+            )
+    else:
+        ann_union_matrix = np.zeros((0, len(monomials)), dtype=np.uint8)
+        ann_union_basis = []
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        tor2_matrix, tor2_basis = compute_quotient_matrix(
+            ann_fg_matrix,
+            ann_union_matrix,
+            monomials,
+            label="Ann(fg)/(Ann(f)+Ann(g))",
+            verbose=True,
+        )
+
+    tor2_vectors: List[np.ndarray] = []
+    tor2_blocks: List[Dict[str, sp.Expr]] = []
+    for poly in tor2_basis:
+        hg = apply_periodic_boundary(sp.expand(poly * g_poly), l, m)
+        hf = apply_periodic_boundary(sp.expand(poly * f_poly), l, m)
+        block1 = _polynomial_to_block_indicator(hg, l, m)
+        block2 = _polynomial_to_block_indicator(hf, l, m)
+        tor2_vectors.append(
+            np.vstack([block1, block2]).reshape(-1).astype(np.uint8)
+        )
+        tor2_blocks.append(
+            {
+                "block1_poly": hg,
+                "block2_poly": hf,
+            }
+        )
+
+    if tor2_vectors:
+        tor2_matrix_qubits = np.vstack(tor2_vectors).astype(np.uint8)
+    else:
+        tor2_matrix_qubits = np.zeros((0, 2 * l * m), dtype=np.uint8)
+
+    f_terms = _poly_to_exponent_pairs(f_poly, l, m)
+    g_terms = _poly_to_exponent_pairs(g_poly, l, m)
+    _, Hz = get_BB_Hx_Hz(f_terms, g_terms, l, m)
+    z_stab_basis_sparse = mod2.row_basis(Hz)
+    if hasattr(z_stab_basis_sparse, "toarray"):
+        z_stab_basis = z_stab_basis_sparse.toarray().astype(np.uint8)
+    else:
+        z_stab_basis = np.asarray(z_stab_basis_sparse, dtype=np.uint8)
+
+    if z_stab_basis.size == 0:
+        z_stab_basis = np.zeros((0, 2 * l * m), dtype=np.uint8)
+
+    stack_for_rank = (
+        np.vstack([z_stab_basis, tor2_matrix_qubits])
+        if (z_stab_basis.size or tor2_matrix_qubits.size)
+        else np.zeros((0, 2 * l * m), dtype=np.uint8)
+    )
+    tor2_z_rank = mod2.rank(stack_for_rank)
+
+    if principal_f_matrix.size or ann_g_quotient_matrix.size:
+        stack_parts: List[np.ndarray] = []
+        if principal_f_matrix.size:
+            stack_parts.append(principal_f_matrix.astype(np.uint8))
+        if ann_g_quotient_matrix.size:
+            stack_parts.append(ann_g_quotient_matrix.astype(np.uint8))
+        stacked_fg = (
+            np.vstack(stack_parts).astype(np.uint8)
+            if stack_parts
+            else np.zeros((0, len(monomials)), dtype=np.uint8)
+        )
+        pivot_rows_fg = mod2.pivot_rows(stacked_fg) if stacked_fg.size else []
+        rank_f = mod2.rank(principal_f_matrix) if principal_f_matrix.size else 0
+        pivot_set_fg = set(pivot_rows_fg)
+        ann_g_outside_f_indices = [
+            idx for idx in range(ann_g_quotient_matrix.shape[0])
+            if (rank_f + idx) in pivot_set_fg
+        ]
+        ann_g_in_f_indices = [
+            idx for idx in range(ann_g_quotient_matrix.shape[0])
+            if (rank_f + idx) not in pivot_set_fg
+        ]
+    else:
+        ann_g_outside_f_indices = []
+        ann_g_in_f_indices = []
+
+    return {
+        "ann_fg_matrix": ann_fg_matrix,
+        "ann_fg_basis": ann_fg_basis,
+        "ann_f_matrix": ann_f_matrix,
+        "ann_f_basis": ann_f_basis,
+        "ann_g_matrix": ann_g_matrix,
+        "ann_g_basis": ann_g_basis,
+        "principal_f_matrix": principal_f_matrix,
+        "principal_f_basis": principal_f_basis,
+        "ann_g_quotient_matrix": ann_g_quotient_matrix,
+        "ann_g_quotient_basis": ann_g_quotient_basis,
+        "ann_union_matrix": ann_union_matrix,
+        "ann_union_basis": ann_union_basis,
+        "tor_matrix": tor2_matrix,
+        "tor_basis": tor2_basis,
+        "tor_qubit_vectors": tor2_matrix_qubits,
+        "tor_z_rank": tor2_z_rank,
+        "tor_blocks": tor2_blocks,
+        "ann_g_outside_f_indices": ann_g_outside_f_indices,
+        "ann_g_outside_f_basis": [ann_g_quotient_basis[i] for i in ann_g_outside_f_indices],
+        "ann_g_in_f_indices": ann_g_in_f_indices,
+        "ann_g_in_f_basis": [ann_g_quotient_basis[i] for i in ann_g_in_f_indices],
+        "dimension": len(tor2_basis),
+    }
+
+
 def _polynomial_to_block_indicator(poly: sp.Expr, l: int, m: int) -> np.ndarray:
     """Return l x m binary array marking qubit positions touched by poly."""
 
@@ -637,6 +835,42 @@ def compute_logical_qubit_operators(f_str: str, g_str: str, l: int, m: int) -> D
     result_f = compute_ann_quotient_matrix(f_str, g_str, l, m)
     result_g = compute_ann_quotient_matrix(g_str, f_str, l, m)
 
+    principal_g_matrix, principal_g_basis = _groebner_row_space([g_poly], _monomial_basis(l, m), l, m)
+
+    ann_f_quotient_matrix = result_f["quotient_matrix"]
+    ann_f_quotient_basis = result_f["quotient_basis"]
+
+    if principal_g_matrix.ndim == 1:
+        principal_g_matrix = principal_g_matrix.reshape(1, -1)
+    if ann_f_quotient_matrix.ndim == 1:
+        ann_f_quotient_matrix = ann_f_quotient_matrix.reshape(1, -1)
+
+    if principal_g_matrix.size or ann_f_quotient_matrix.size:
+        stack_parts: List[np.ndarray] = []
+        if principal_g_matrix.size:
+            stack_parts.append(principal_g_matrix.astype(np.uint8))
+        if ann_f_quotient_matrix.size:
+            stack_parts.append(ann_f_quotient_matrix.astype(np.uint8))
+        stacked_fg = (
+            np.vstack(stack_parts).astype(np.uint8)
+            if stack_parts
+            else np.zeros((0, ann_f_quotient_matrix.shape[1] if ann_f_quotient_matrix.size else principal_g_matrix.shape[1]), dtype=np.uint8)
+        )
+        pivot_rows_fg = mod2.pivot_rows(stacked_fg) if stacked_fg.size else []
+        rank_g = mod2.rank(principal_g_matrix) if principal_g_matrix.size else 0
+        pivot_set_fg = set(pivot_rows_fg)
+        block1_outside_indices = [
+            idx for idx in range(ann_f_quotient_matrix.shape[0])
+            if (rank_g + idx) in pivot_set_fg
+        ]
+        block1_inside_indices = [
+            idx for idx in range(ann_f_quotient_matrix.shape[0])
+            if (rank_g + idx) not in pivot_set_fg
+        ]
+    else:
+        block1_outside_indices = []
+        block1_inside_indices = []
+
     block1_ops = []
     for idx, poly in enumerate(result_f["quotient_basis"]):
         entry = build_qubit_logical_indicator(poly, l, m, block=0)
@@ -650,6 +884,7 @@ def compute_logical_qubit_operators(f_str: str, g_str: str, l: int, m: int) -> D
         block2_ops.append(entry)
 
     torsion = compute_tor_1(f_str, g_str, l, m)
+    tor2 = compute_tor_2(f_str, g_str, l, m)
     torsion_ops = []
     if torsion["tor_basis"]:
         monomials = _monomial_basis(l, m)
@@ -700,6 +935,14 @@ def compute_logical_qubit_operators(f_str: str, g_str: str, l: int, m: int) -> D
         "block2": block2_ops,
         "torsion": torsion_ops,
         "tor_details": torsion,
+        "tor2_details": tor2,
+        "block1_ann_decomposition": {
+            "outside_indices": block1_outside_indices,
+            "outside_basis": [ann_f_quotient_basis[i] for i in block1_outside_indices],
+            "inside_indices": block1_inside_indices,
+            "inside_basis": [ann_f_quotient_basis[i] for i in block1_inside_indices],
+            "principal_basis": principal_g_basis,
+        },
         "matrix": logical_matrix,
         "independence": {
             "matrix": logical_matrix,
@@ -755,7 +998,8 @@ def verify_logical_z_equivalence(
     block1_ops = logicals["block1"]
     block2_ops = logicals["block2"]
     torsion_ops = logicals["torsion"]
-
+    tor2_details = logicals.get("tor2_details")
+    
     poly_entries = block1_ops + block2_ops + torsion_ops
     # poly_entries = logicals["block1"] + logicals["block2"]
     
@@ -778,6 +1022,15 @@ def verify_logical_z_equivalence(
     block1_matrix = _to_matrix(block1_ops)
     block2_matrix = _to_matrix(block2_ops)
     torsion_matrix = _to_matrix(torsion_ops)
+
+    tor2_matrix = (
+        tor2_details["tor_qubit_vectors"]
+        if tor2_details and tor2_details["tor_qubit_vectors"].size
+        else np.zeros((0, Hz.shape[1]), dtype=np.uint8)
+    )
+    tor2_rank = mod2.rank(tor2_matrix) if tor2_matrix.size else 0
+    tor2_union_rank = tor2_details["tor_z_rank"] if tor2_details else z_stab_rank
+    tor2_intersection_rank = max(tor2_rank + z_stab_rank - tor2_union_rank, 0)
 
     poly_matrix = (
         np.vstack([block1_matrix, block2_matrix, torsion_matrix])
@@ -886,6 +1139,9 @@ def verify_logical_z_equivalence(
         "rank_block1_z_union": block1_z_rank,
         "rank_block2_z_union": block2_z_rank,
         "rank_torsion_z_union": torsion_z_rank,
+        "rank_tor2": tor2_rank,
+        "rank_tor2_z_union": tor2_union_rank,
+        "rank_tor2_z_intersection": tor2_intersection_rank,
         "lz_matrix": lz_matrix,
         "z_stabilizer_basis": z_stab_basis,
     }
@@ -1111,14 +1367,29 @@ def run_test_examples():
             print("Logical Z operators on block 1 (Ann(f)/(g Ann(f))):")
             for entry in logicals["block1"]:
                 print(f"  index {entry['index']}, poly {entry['poly']}")
-                print("    tensor=", np.array2string(entry["tensor"], separator=", "))
-                print("    vector=", entry["vector"])
+                # print("    tensor=", np.array2string(entry["tensor"], separator=", "))
+                # print("    vector=", entry["vector"])
+
+            block1_ann_details = logicals.get("block1_ann_decomposition")
+            if block1_ann_details:
+                print(
+                    "Ann(f)/(g Ann(f)) independent indices w.r.t ⟨g⟩:",
+                    block1_ann_details["outside_indices"],
+                )
+                for idx, poly in enumerate(block1_ann_details.get("outside_basis", [])):
+                    print(f"  independent_poly[{idx}] = {poly}")
+                print(
+                    "Ann(f) ∩ ⟨g⟩ representative indices:",
+                    block1_ann_details["inside_indices"],
+                )
+                for idx, poly in enumerate(block1_ann_details.get("inside_basis", [])):
+                    print(f"  intersection_poly[{idx}] = {poly}")
 
             print("Logical Z operators on block 2 (Ann(g)/(f Ann(g))):")
             for entry in logicals["block2"]:
                 print(f"  index {entry['index']}, poly {entry['poly']}")
-                print("    tensor=", np.array2string(entry["tensor"], separator=", "))
-                print("    vector=", entry["vector"])
+                # print("    tensor=", np.array2string(entry["tensor"], separator=", "))
+                # print("    vector=", entry["vector"])
 
             print("Logical Z torsion operators (Tor_1):")
             if logicals["torsion"]:
@@ -1127,10 +1398,40 @@ def run_test_examples():
                     if "f_multiplier" in entry and "g_multiplier" in entry:
                         print(f"    f_multiplier = {entry['f_multiplier']}")
                         print(f"    g_multiplier = {entry['g_multiplier']}")
-                    print("    tensor=", np.array2string(entry["tensor"], separator=", "))
-                    print("    vector=", entry["vector"])
+                    # print("    tensor=", np.array2string(entry["tensor"], separator=", "))
+                    # print("    vector=", entry["vector"])
             else:
                 print("  (none)")
+
+            tor2_details = logicals.get("tor2_details")
+            if tor2_details and tor2_details["tor_basis"]:
+                print("Tor_2 polynomials:")
+                for idx, poly in enumerate(tor2_details["tor_basis"]):
+                    print(f"  Tor_2[{idx}] = {poly}")
+                    block_info = tor2_details.get("tor_blocks", [])
+                    if idx < len(block_info):
+                        print(f"    block1_poly = {block_info[idx]['block1_poly']}")
+                        print(f"    block2_poly = {block_info[idx]['block2_poly']}")
+            else:
+                print("Tor_2 polynomials: (none)")
+            if tor2_details is not None:
+                print(f"rank(Tor_2 ∪ Z) = {tor2_details['tor_z_rank']}")
+                outside_idx = tor2_details.get("ann_g_outside_f_indices", [])
+                inside_idx = tor2_details.get("ann_g_in_f_indices", [])
+                print(
+                    "Ann(g)/(f Ann(g)) independent indices w.r.t ⟨f⟩:",
+                    outside_idx,
+                )
+                if tor2_details.get("ann_g_outside_f_basis"):
+                    for j, poly in enumerate(tor2_details["ann_g_outside_f_basis"]):
+                        print(f"  independent_poly[{j}] = {poly}")
+                print(
+                    "Ann(g) ∩ ⟨f⟩ representative indices:",
+                    inside_idx,
+                )
+                if tor2_details.get("ann_g_in_f_basis"):
+                    for j, poly in enumerate(tor2_details["ann_g_in_f_basis"]):
+                        print(f"  intersection_poly[{j}] = {poly}")
 
             indep = logicals["independence"]
             print(
@@ -1158,6 +1459,13 @@ def run_test_examples():
                     rank_b1=equivalence["rank_block1_z_union"],
                     rank_b2=equivalence["rank_block2_z_union"],
                     rank_tor=equivalence["rank_torsion_z_union"],
+                )
+            )
+            print(
+                "  Tor_2:       rank={rank_t2}, rank(Tor_2 ∪ Z)={rank_t2u}, rank(Tor_2 ∩ Z)={rank_t2i}".format(
+                    rank_t2=equivalence["rank_tor2"],
+                    rank_t2u=equivalence["rank_tor2_z_union"],
+                    rank_t2i=equivalence["rank_tor2_z_intersection"],
                 )
             )
             _print_logical_equivalence_details(logicals, equivalence)
