@@ -205,56 +205,6 @@ def _solve_linear_mod2(A: np.ndarray, b: np.ndarray) -> Optional[np.ndarray]:
     return x
 
 
-def _decompose_vector_over_row_spaces(
-    target: np.ndarray,
-    primary: np.ndarray,
-    secondary: np.ndarray,
-) -> Optional[Tuple[List[int], List[int]]]:
-    """Return indices of primary/secondary rows whose XOR gives `target`.
-
-    The rows of `primary` are treated as the quotient representatives, while `secondary`
-    contains the denominator generators (e.g. g·Ann(f)). If either matrix is empty the
-    corresponding index list is empty. Returns None when `target` is outside the span
-    of the combined row spaces.
-    """
-
-    target_vec = target.astype(np.uint8, copy=False).reshape(-1)
-
-    primary_mat = primary.astype(np.uint8, copy=False)
-    secondary_mat = secondary.astype(np.uint8, copy=False)
-
-    if primary_mat.ndim == 1 and primary_mat.size:
-        primary_mat = primary_mat.reshape(1, -1)
-    if secondary_mat.ndim == 1 and secondary_mat.size:
-        secondary_mat = secondary_mat.reshape(1, -1)
-
-    primary_rows = primary_mat.shape[0] if primary_mat.size else 0
-    secondary_rows = secondary_mat.shape[0] if secondary_mat.size else 0
-
-    if not primary_rows and not secondary_rows:
-        return ([], []) if not np.any(target_vec) else None
-
-    if primary_rows and secondary_rows:
-        combined = np.vstack([primary_mat, secondary_mat]).astype(np.uint8, copy=False)
-    elif primary_rows:
-        combined = primary_mat
-    else:
-        combined = secondary_mat
-
-    solution = _solve_linear_mod2(combined.T.astype(np.uint8, copy=False), target_vec)
-    if solution is None:
-        return None
-
-    solution = solution.reshape(-1) % 2
-    primary_coeffs = solution[:primary_rows] if primary_rows else np.zeros(0, dtype=np.uint8)
-    secondary_coeffs = solution[primary_rows:] if secondary_rows else np.zeros(0, dtype=np.uint8)
-
-    primary_indices = [int(idx) for idx, val in enumerate(primary_coeffs) if val]
-    secondary_indices = [int(idx) for idx, val in enumerate(secondary_coeffs) if val]
-
-    return primary_indices, secondary_indices
-
-
 def _row_basis_from_polynomials(
     polys: List[sp.Expr], monomials: List[sp.Expr], l: int, m: int
 ) -> Tuple[np.ndarray, List[sp.Expr]]:
