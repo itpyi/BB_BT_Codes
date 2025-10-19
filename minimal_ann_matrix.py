@@ -82,6 +82,23 @@ def vector_to_poly(vector, monomials):
     return poly
 
 
+def _to_dense_uint8(data: Any) -> np.ndarray:
+    """Convert mod2 outputs (sparse/dense) to uint8 numpy arrays reduced modulo 2."""
+    if hasattr(data, "toarray"):
+        dense = data.toarray()
+    else:
+        dense = np.asarray(data)
+    return (dense.astype(np.uint8) % 2)
+
+
+def _ensure_2d_uint8(data: Any) -> np.ndarray:
+    """Return a row-major uint8 matrix for mod2 helpers, even if input is 1-D."""
+    dense = _to_dense_uint8(data)
+    if dense.ndim == 1:
+        dense = dense.reshape(1, -1)
+    return dense
+
+
 def _groebner_row_space(
     polys: List[sp.Expr],
     monomials: List[sp.Expr],
@@ -143,10 +160,7 @@ def _groebner_row_space(
     stacked = np.vstack(vectors).astype(np.uint8)
 
     basis_sparse = mod2.row_basis(stacked)
-    if hasattr(basis_sparse, "toarray"):
-        basis_matrix = basis_sparse.toarray().astype(np.uint8)
-    else:
-        basis_matrix = np.asarray(basis_sparse, dtype=np.uint8)
+    basis_matrix = _ensure_2d_uint8(basis_sparse)
 
     basis_polys = [vector_to_poly(row, monomials) for row in basis_matrix]
     return basis_matrix, basis_polys
@@ -162,6 +176,36 @@ def _multiplication_matrix(
         prod = expand(mon_j * poly)
         M[:, j] = poly_to_vector(prod, monomials, l, m)
     return M
+
+
+# def _verify_annihilation(
+#     multiplier: sp.Expr,
+#     annihilators: List[sp.Expr],
+#     l: int,
+#     m: int,
+#     *,
+#     multiplier_label: str,
+#     ann_label: str,
+# ) -> bool:
+#     """Print-and-check that multiplier * annihilator polynomials vanish."""
+
+#     term_label = f"{multiplier_label} * {ann_label}"
+#     print(f"\n=== VERIFICATION: {term_label} = 0 ===")
+
+#     all_zero = True
+#     for idx, ann_poly in enumerate(annihilators):
+#         product_reduced = apply_periodic_boundary(expand(multiplier * ann_poly), l, m)
+#         if product_reduced != 0:
+#             print(f"  ERROR: {term_label}[{idx}] = {product_reduced} ≠ 0")
+#             all_zero = False
+#         else:
+#             print(f"  ✓ {term_label}[{idx}] = 0")
+
+#     if all_zero:
+#         print(f"✓ VERIFIED: All {term_label} products are zero in the polynomial ring")
+#     else:
+#         print(f"✗ VERIFICATION FAILED: Some {term_label} products are non-zero")
+#     return all_zero
 
 
 def _solve_linear_mod2(A: np.ndarray, b: np.ndarray) -> Optional[np.ndarray]:
@@ -219,10 +263,7 @@ def _row_basis_from_polynomials(
     stacked = np.vstack(vectors).astype(np.uint8)
 
     basis_sparse = mod2.row_basis(stacked)
-    if hasattr(basis_sparse, "toarray"):
-        basis_matrix = basis_sparse.toarray().astype(np.uint8)
-    else:
-        basis_matrix = np.asarray(basis_sparse, dtype=np.uint8)
+    basis_matrix = _ensure_2d_uint8(basis_sparse)
 
     if basis_matrix.size == 0:
         basis_matrix = np.zeros((0, len(monomials)), dtype=np.uint8)
@@ -274,14 +315,7 @@ def compute_ann_f_matrix(f_poly, monomials, l: int, m: int):
 
     print(f"\n=== Computing Ann(f) Matrix where f = {f_poly} ===")
 
-    N = len(monomials)
-    M = np.zeros((N, N), dtype=np.uint8)
-
-    # Build matrix: M[i,j] = coefficient of monomial_i in (monomial_j * f)
-    for j, monom_j in enumerate(monomials):
-        product = expand(monom_j * f_poly)
-        product_vec = poly_to_vector(product, monomials, l, m)
-        M[:, j] = product_vec
+    M = _multiplication_matrix(f_poly, monomials, l, m)
 
     print(f"Built multiplication matrix M of size {M.shape}")
     print(f"Matrix rank: {mod2.rank(M)}")
@@ -294,13 +328,9 @@ def compute_ann_f_matrix(f_poly, monomials, l: int, m: int):
     ann_f_polys: List[sp.Expr] = []
 
     for vec in nullspace_vecs:
-        if hasattr(vec, 'toarray'):
-            coeffs = vec.toarray().flatten()
-        else:
-            coeffs = np.asarray(vec).flatten()
-        coeffs = (coeffs.astype(np.uint8) % 2).reshape(1, -1)
-        ann_f_rows.append(coeffs[0])
-        poly = vector_to_poly(coeffs[0], monomials)
+        coeffs = _to_dense_uint8(vec).reshape(-1)
+        ann_f_rows.append(coeffs)
+        poly = vector_to_poly(coeffs, monomials)
         if poly != 0:
             ann_f_polys.append(poly)
 
@@ -321,21 +351,14 @@ def compute_ann_f_matrix(f_poly, monomials, l: int, m: int):
         print(f"  Ann(f)[{i}]: {gen}")
 
     # VERIFICATION: Check that f * Ann(f) = 0 in the polynomial ring
-    print(f"\n=== VERIFICATION: f * Ann(f) = 0 ===")
-    all_products_zero = True
-    for i, h_poly in enumerate(ann_f_polys):
-        product = expand(f_poly * h_poly)
-        product_reduced = apply_periodic_boundary(product, l, m)
-        if product_reduced != 0:
-            print(f"  ERROR: f * Ann(f)[{i}] = {product_reduced} ≠ 0")
-            all_products_zero = False
-        else:
-            print(f"  ✓ f * Ann(f)[{i}] = 0")
-    
-    if all_products_zero:
-        print(f"✓ VERIFIED: All f * Ann(f) products are zero in the polynomial ring")
-    else:
-        print(f"✗ VERIFICATION FAILED: Some f * Ann(f) products are non-zero")
+    # _verify_annihilation(
+    #     f_poly,
+    #     ann_f_polys,
+    #     l,
+    #     m,
+    #     multiplier_label="f",
+    #     ann_label="Ann(f)",
+    # )
 
     return M_f, ann_f_polys
 
@@ -1174,45 +1197,47 @@ def _print_logical_equivalence_details(
     )
     poly_basis_labels = css_labels + stab_labels
 
-    if css_matrix.size:
-        print("CSS logical Z expressed via polynomial logicals and Z stabilizers:")
-        for idx, vec in enumerate(css_matrix):
-            combo = _express_with_preference(
-                vec,
-                poly_matrix,
-                poly_labels,
-                css_basis,
-                css_basis_labels,
-            )
-            if combo is None:
-                print(
-                    "  css_logical_z[{idx}] cannot be expressed via polynomial logicals and Z stabilizers".format(
-                        idx=idx
-                    )
+    print_logical_relation = False
+    if print_logical_relation:
+        if css_matrix.size:
+            print("CSS logical Z expressed via polynomial logicals and Z stabilizers:")
+            for idx, vec in enumerate(css_matrix):
+                combo = _express_with_preference(
+                    vec,
+                    poly_matrix,
+                    poly_labels,
+                    css_basis,
+                    css_basis_labels,
                 )
-            else:
-                rhs = " + ".join(combo) if combo else "0"
-                print(f"  css_logical_z[{idx}] = {rhs}")
+                if combo is None:
+                    print(
+                        "  css_logical_z[{idx}] cannot be expressed via polynomial logicals and Z stabilizers".format(
+                            idx=idx
+                        )
+                    )
+                else:
+                    rhs = " + ".join(combo) if combo else "0"
+                    print(f"  css_logical_z[{idx}] = {rhs}")
 
-    if poly_matrix.size:
-        print("Polynomial logical Z expressed via css_code logicals and Z stabilizers:")
-        for idx, vec in enumerate(poly_matrix):
-            combo = _express_with_preference(
-                vec,
-                css_matrix,
-                css_labels,
-                poly_basis,
-                poly_basis_labels,
-            )
-            if combo is None:
-                print(
-                    "  poly_logical[{idx}] cannot be expressed via css_code logicals and Z stabilizers".format(
-                        idx=idx
-                    )
+        if poly_matrix.size:
+            print("Polynomial logical Z expressed via css_code logicals and Z stabilizers:")
+            for idx, vec in enumerate(poly_matrix):
+                combo = _express_with_preference(
+                    vec,
+                    css_matrix,
+                    css_labels,
+                    poly_basis,
+                    poly_basis_labels,
                 )
-            else:
-                rhs = " + ".join(combo) if combo else "0"
-                print(f"  poly_logical[{idx}] = {rhs}")
+                if combo is None:
+                    print(
+                        "  poly_logical[{idx}] cannot be expressed via css_code logicals and Z stabilizers".format(
+                            idx=idx
+                        )
+                    )
+                else:
+                    rhs = " + ".join(combo) if combo else "0"
+                    print(f"  poly_logical[{idx}] = {rhs}")
 
 
 def compute_ann_quotient_matrix(f_str: str, g_str: str, l: int, m: int):
@@ -1378,12 +1403,12 @@ def run_test_examples():
             else:
                 print("Tor_2 polynomials: (none)")
 
-            indep = logicals["independence"]
-            print(
-                f"Logical operator rank check: rank={indep['rank']} count={indep['count']} independent={indep['independent']}"
-            )
-            print("Stacked logical Z matrix shape:", logicals["matrix"].shape)
-            print(logicals["matrix"])
+            # indep = logicals["independence"]
+            # print(
+            #     f"Logical operator rank check: rank={indep['rank']} count={indep['count']} independent={indep['independent']}"
+            # )
+            # print("Stacked logical Z matrix shape:", logicals["matrix"].shape)
+            # print(logicals["matrix"])
 
             equivalence = verify_logical_z_equivalence(f, g, l, m, logicals)
             print(
