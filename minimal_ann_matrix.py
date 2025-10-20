@@ -645,17 +645,23 @@ def compute_tor_2(
     else:
         tor2_matrix_qubits = np.zeros((0, 2 * l * m), dtype=np.uint8)
 
+
+    #######################################################################
+    # Bug. Need fix here
+    # Directly calculate Ann(g) ∩ ⟨f⟩ / (Ann(g) f) and Ann(f) ∩ ⟨g⟩ / (Ann(f) g)
+    #######################################################################
+    # REPLACE BEGIN
     
     # Replicate the Ann(f)/(g Ann(f)) pivot test on the g-side to expose the pieces of
     # Ann(g)/(f Ann(g)) that genuinely escape ⟨f⟩.  The new pivot rows beyond rank(⟨f⟩)
     # identify logical Z representatives supported on block 2 alone; the non-pivot rows
-    # capture Ann(g) ∩ ⟨f⟩ /(Ann(g) f), which combine with the Tor2 generators above to
+    # capture Ann(g)/(Ann(g) f)  ∩ ⟨f⟩, which combine with the Tor2 generators above to
     # yield block-correlated logical Z operators (the torsion sector).
     stack_parts: List[np.ndarray] = []
 
-    perm = [0, 2, 4, 1, 3, 5]  # Rearrange to group by x-degree for debugging!
+    # perm = [0, 2, 4, 1, 3, 5]  # Rearrange to group by x-degree for debugging!
     stack_parts.append(principal_f_matrix.astype(np.uint8))
-    stack_parts.append(ann_g_quotient_matrix.astype(np.uint8)[perm,:])
+    stack_parts.append(ann_g_quotient_matrix.astype(np.uint8))
 
     stacked_fg = (
         np.vstack(stack_parts).astype(np.uint8)
@@ -709,6 +715,8 @@ def compute_tor_2(
         idx for idx in range(ann_f_quotient_matrix.shape[0])
         if (rank_g + idx) not in pivot_set_fg
     ]
+    # REPLACE END
+    ########################################################################
 
     return {
         "ann_fg_matrix": ann_fg_matrix,
@@ -981,6 +989,14 @@ def verify_logical_z_equivalence(
             return np.zeros((0, Hz.shape[1]), dtype=np.uint8)
         return np.vstack([entry["vector"].astype(np.uint8) for entry in entries])
 
+    def _subset_rows(matrix: np.ndarray, indices: List[int]) -> np.ndarray:
+        if not indices:
+            cols = matrix.shape[1] if matrix.ndim == 2 else Hz.shape[1]
+            return np.zeros((0, cols), dtype=np.uint8)
+        if matrix.size == 0:
+            return np.zeros((0, Hz.shape[1]), dtype=np.uint8)
+        return matrix[np.asarray(indices, dtype=int)]
+
     block1_matrix = _to_matrix(block1_ops)
     block2_matrix = _to_matrix(block2_ops)
     torsion_matrix = _to_matrix(torsion_ops)
@@ -1032,6 +1048,120 @@ def verify_logical_z_equivalence(
     block2_z_rank = mod2.rank(_stack_with_z(block2_matrix))
     torsion_z_rank = mod2.rank(_stack_with_z(torsion_matrix))
     torsion2_z_rank = mod2.rank(_stack_with_z(tor2_matrix))
+
+    ann_f_outside_idx = (
+        tor2_details.get("ann_f_outside_g_indices", []) if tor2_details else []
+    )
+    ann_f_inside_idx = (
+        tor2_details.get("ann_f_in_g_indices", []) if tor2_details else []
+    )
+    ann_g_outside_idx = (
+        tor2_details.get("ann_g_outside_f_indices", []) if tor2_details else []
+    )
+    ann_g_inside_idx = (
+        tor2_details.get("ann_g_in_f_indices", []) if tor2_details else []
+    )
+
+    ann_f_outside_matrix = _subset_rows(block1_matrix, ann_f_outside_idx)
+    ann_f_inside_matrix = _subset_rows(block1_matrix, ann_f_inside_idx)
+    ann_g_outside_matrix = _subset_rows(block2_matrix, ann_g_outside_idx)
+    ann_g_inside_matrix = _subset_rows(block2_matrix, ann_g_inside_idx)
+
+    selected_union_parts: List[np.ndarray] = [
+        z_stab_basis,
+        ann_f_outside_matrix,
+        ann_g_outside_matrix,
+        ann_f_inside_matrix,
+        torsion_matrix,
+    ]
+    selected_union_parts = [part for part in selected_union_parts if part.size]
+    if selected_union_parts:
+        selected_union_matrix = np.vstack(selected_union_parts).astype(np.uint8)
+        selected_union_rank = mod2.rank(selected_union_matrix)
+    else:
+        selected_union_matrix = np.zeros((0, Hz.shape[1]), dtype=np.uint8)
+        selected_union_rank = 0
+
+    selected_union_matches_poly_rank = selected_union_rank == rank_poly
+    print(
+        "DEBUG: rank(Z ∪ Ann(f)_out ∪ Ann(g)_out ∪ Ann(f)_dep ∪ Tor₁) = "
+        f"{selected_union_rank} (poly_stack rank={rank_poly}, match={selected_union_matches_poly_rank})"
+    )
+
+    selected_union_parts: List[np.ndarray] = [
+        z_stab_basis,
+        ann_f_inside_matrix,
+        ann_g_inside_matrix,
+    ]
+    selected_union_parts = [part for part in selected_union_parts if part.size]
+    if selected_union_parts:
+        selected_union_matrix = np.vstack(selected_union_parts).astype(np.uint8)
+        selected_union_rank = mod2.rank(selected_union_matrix)
+    else:
+        selected_union_matrix = np.zeros((0, Hz.shape[1]), dtype=np.uint8)
+        selected_union_rank = 0
+
+    print(
+        "DEBUG: rank(Z ∪ Ann(f)_dep ∪ Ann(g)_dep) = "
+        f"{selected_union_rank} (poly_stack rank={rank_poly})"
+    )
+
+    selected_union_parts: List[np.ndarray] = [
+        z_stab_basis,
+        ann_f_outside_matrix,
+        ann_g_outside_matrix,
+        ann_f_inside_matrix,
+        ann_g_inside_matrix,
+    ]
+    selected_union_parts = [part for part in selected_union_parts if part.size]
+    if selected_union_parts:
+        selected_union_matrix = np.vstack(selected_union_parts).astype(np.uint8)
+        selected_union_rank = mod2.rank(selected_union_matrix)
+    else:
+        selected_union_matrix = np.zeros((0, Hz.shape[1]), dtype=np.uint8)
+        selected_union_rank = 0
+
+    print(
+        "DEBUG: rank(Z ∪ Ann(f)_dep ∪ Ann(g)_dep ∪ Ann(f)_out ∪ Ann(g)_out) = "
+        f"{selected_union_rank} (poly_stack rank={rank_poly})"
+    )
+
+    selected_union_parts: List[np.ndarray] = [
+        z_stab_basis,
+        ann_f_outside_matrix,
+        ann_g_outside_matrix,
+    ]
+    selected_union_parts = [part for part in selected_union_parts if part.size]
+    if selected_union_parts:
+        selected_union_matrix = np.vstack(selected_union_parts).astype(np.uint8)
+        selected_union_rank = mod2.rank(selected_union_matrix)
+    else:
+        selected_union_matrix = np.zeros((0, Hz.shape[1]), dtype=np.uint8)
+        selected_union_rank = 0
+
+    print(
+        "DEBUG: rank(Z ∪ Ann(f)_out ∪ Ann(g)_out) = "
+        f"{selected_union_rank} (poly_stack rank={rank_poly})"
+    )
+
+    selected_union_parts: List[np.ndarray] = [
+        z_stab_basis,
+        ann_f_inside_matrix,
+        ann_f_outside_matrix,
+        ann_g_outside_matrix,
+    ]
+    selected_union_parts = [part for part in selected_union_parts if part.size]
+    if selected_union_parts:
+        selected_union_matrix = np.vstack(selected_union_parts).astype(np.uint8)
+        selected_union_rank = mod2.rank(selected_union_matrix)
+    else:
+        selected_union_matrix = np.zeros((0, Hz.shape[1]), dtype=np.uint8)
+        selected_union_rank = 0
+
+    print(
+        "DEBUG: rank(Z ∪ Ann(f)_dep ∪ Ann(f)_out ∪ Ann(g)_out) = "
+        f"{selected_union_rank} (poly_stack rank={rank_poly})"
+    )
 
     tor2_rank = mod2.rank(tor2_matrix) if tor2_matrix.size else 0
     tor2_union_rank = torsion2_z_rank
@@ -1106,6 +1236,8 @@ def verify_logical_z_equivalence(
         "rank_tor2": tor2_rank,
         "rank_tor2_z_union": tor2_union_rank,
         "rank_tor2_z_intersection": tor2_intersection_rank,
+        "rank_selected_poly_z_union": selected_union_rank,
+        "selected_poly_z_union_matches_poly_stack": selected_union_matches_poly_rank,
         "lz_matrix": lz_matrix,
         "z_stabilizer_basis": z_stab_basis,
     }
@@ -1315,8 +1447,9 @@ def run_test_examples():
         # ("1 + x + x*y", "1 + y + x*y", 3, 3),
         # ("1 + x + x*y", "1 + y + x*y", 6, 6),
         # ("x^3 + y + y^2", "y^3 + x + x^2", 6, 6),
-        ("x^3 + y + y^2", "y^3 + x + x^2", 12, 12),
-        # ("x^3 + y + y^2", "y^3 + x + x^2", 18, 18),
+        ("x^3 + y + y^2", "y^3 + x + x^2", 12, 6),
+        # ("x^3 + y + y^2", "y^3 + x + x^2", 12, 12),
+        # ("x^3 + y + y^2", "y^3 + x + x^2", 9, 9),
         # ("x+1", "y+1+x^2", 2, 2),
     ]
 
