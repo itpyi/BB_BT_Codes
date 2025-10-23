@@ -310,6 +310,58 @@ def _intersection_ideal_basis_via_elimination(
     return _row_basis_from_polynomials(inter_poly, monomials, l, m)
 
 
+def _ann_intersection_basis(
+    ann_matrix: np.ndarray,
+    ann_basis: List[sp.Expr],
+    principal_matrix: np.ndarray,
+    principal_poly: sp.Expr,
+    monomials: List[sp.Expr],
+    l: int,
+    m: int,
+) -> Tuple[np.ndarray, List[sp.Expr]]:
+    """Return a row-basis for Ann(·) ∩ ⟨principal_poly⟩ (as vectors and polys)."""
+    # reduce to GF(2) row bases
+    A = _ensure_2d_uint8(ann_matrix)
+    P = _ensure_2d_uint8(principal_matrix)
+    if A.size == 0 or P.size == 0:
+        return np.zeros((0, len(monomials)), dtype=np.uint8), []
+
+    A = _ensure_2d_uint8(mod2.row_basis(A))
+    P = _ensure_2d_uint8(mod2.row_basis(P))
+    if A.size == 0 or P.size == 0:
+        return np.zeros((0, len(monomials)), dtype=np.uint8), []
+
+    ra = A.shape[0]
+
+    # Solve A^T alpha + P^T beta = 0  (over GF(2)).
+    M = np.hstack([A.T, P.T]).astype(np.uint8)
+
+    # Option 1: nullspace returns a basis as ROWS of shape (k, ra+rp)
+    W = _ensure_2d_uint8(mod2.nullspace(M))
+    if W.size == 0:
+        return np.zeros((0, A.shape[1]), dtype=np.uint8), []
+
+    inter_rows = []
+    for w in W:
+        coeffs = w.reshape(-1).astype(np.uint8)
+        alpha = coeffs[:ra]
+        if not alpha.any():
+            continue
+        x = np.zeros(A.shape[1], dtype=np.uint8)
+        for idx, bit in enumerate(alpha):
+            if bit & 1:
+                x ^= A[idx]
+        inter_rows.append(x.astype(np.uint8))
+
+    # Deduplicate to a row basis
+    if not inter_rows:
+        return np.zeros((0, A.shape[1]), dtype=np.uint8), []
+
+    B = _ensure_2d_uint8(mod2.row_basis(np.vstack(inter_rows).astype(np.uint8)))
+    polys = [vector_to_poly(row, monomials) for row in B]
+    return B, polys
+
+
 def compute_ann_f_matrix(f_poly, monomials, l: int, m: int):
     """Compute Ann(f) as matrix M_f where rows are generators"""
 
@@ -651,70 +703,78 @@ def compute_tor_2(
     # Directly calculate Ann(g) ∩ ⟨f⟩ / (Ann(g) f) and Ann(f) ∩ ⟨g⟩ / (Ann(f) g)
     #######################################################################
     # REPLACE BEGIN
-    
-    # Replicate the Ann(f)/(g Ann(f)) pivot test on the g-side to expose the pieces of
-    # Ann(g)/(f Ann(g)) that genuinely escape ⟨f⟩.  The new pivot rows beyond rank(⟨f⟩)
-    # identify logical Z representatives supported on block 2 alone; the non-pivot rows
-    # capture Ann(g)/(Ann(g) f)  ∩ ⟨f⟩, which combine with the Tor2 generators above to
-    # yield block-correlated logical Z operators (the torsion sector).
-    stack_parts: List[np.ndarray] = []
 
-    # perm = [0, 2, 4, 1, 3, 5]  # Rearrange to group by x-degree for debugging!
-    stack_parts.append(principal_f_matrix.astype(np.uint8))
-    stack_parts.append(ann_g_quotient_matrix.astype(np.uint8))
+    num_cols = len(monomials)
 
-    stacked_fg = (
-        np.vstack(stack_parts).astype(np.uint8)
-        if stack_parts
-        else np.zeros((0, len(monomials)), dtype=np.uint8)
+    def _zero_matrix() -> np.ndarray:
+        return np.zeros((0, num_cols), dtype=np.uint8)
+
+    ann_g_in_f_matrix, _ = _ann_intersection_basis(
+        ann_g_matrix,
+        ann_g_basis,
+        principal_f_matrix,
+        f_poly,
+        monomials,
+        l,
+        m,
     )
-    pivot_rows_fg = mod2.pivot_rows(stacked_fg)
-    rank_f = mod2.rank(principal_f_matrix)
-    pivot_set_fg = set(pivot_rows_fg)
-    ann_g_outside_f_indices = [
-        idx for idx in range(ann_g_quotient_matrix.shape[0])
-        if (rank_f + idx) in pivot_set_fg
-    ]
-    ann_g_in_f_indices = [
-        idx for idx in range(ann_g_quotient_matrix.shape[0])
-        if (rank_f + idx) not in pivot_set_fg
-    ]
-
-
-    principal_g_matrix, principal_g_basis = _groebner_row_space([g_poly], _monomial_basis(l, m), l, m)
-
-
-    if principal_g_matrix.ndim == 1:
-        principal_g_matrix = principal_g_matrix.reshape(1, -1)
-    if ann_f_quotient_matrix.ndim == 1:
-        ann_f_quotient_matrix = ann_f_quotient_matrix.reshape(1, -1)
-
-    # Determine which Ann(f)/(g Ann(f)) coset representatives remain independent of ⟨g⟩.
-    # Stacking the principal ideal ⟨g⟩ with the quotient basis and re-running Gaussian elimination
-    # lets us read off fresh pivot rows contributed by Ann(f)/(g Ann(f)).  Those new pivots (tracked
-    # via pivot_rows_fg beyond rank(⟨g⟩)) are exactly the logical Z operators that survive outside
-    # Ann(f) ∩ ⟨g⟩, while the remaining indices enumerate Ann(f) ∩ ⟨g⟩ /(Ann(f) g).  The latter are
-    # later paired with Tor2 data to diagnose dependent combinations across the two blocks.
-    stack_parts: List[np.ndarray] = []
-    stack_parts.append(principal_g_matrix.astype(np.uint8))
-    stack_parts.append(ann_f_quotient_matrix.astype(np.uint8))
-
-    stacked_fg = (
-        np.vstack(stack_parts).astype(np.uint8)
-        if stack_parts
-        else np.zeros((0, ann_f_quotient_matrix.shape[1] if ann_f_quotient_matrix.size else principal_g_matrix.shape[1]), dtype=np.uint8)
+    ann_f_in_g_matrix, _ = _ann_intersection_basis(
+        ann_f_matrix,
+        ann_f_basis,
+        principal_g_matrix,
+        g_poly,
+        monomials,
+        l,
+        m,
     )
-    pivot_rows_fg = mod2.pivot_rows(stacked_fg)
-    rank_g = mod2.rank(principal_g_matrix)
-    pivot_set_fg = set(pivot_rows_fg)
-    ann_f_outside_g_indices = [
-        idx for idx in range(ann_f_quotient_matrix.shape[0])
-        if (rank_g + idx) in pivot_set_fg
-    ]
-    ann_f_in_g_indices = [
-        idx for idx in range(ann_f_quotient_matrix.shape[0])
-        if (rank_g + idx) not in pivot_set_fg
-    ]
+
+    f_ann_g_matrix = _ensure_2d_uint8(ann_g_quotient["M_g"])
+    g_ann_f_matrix = _ensure_2d_uint8(ann_f_quotient["M_g"])
+
+    if ann_g_in_f_matrix.size:
+        ann_g_in_f_quotient_matrix, ann_g_in_f_quotient_basis = compute_quotient_matrix(
+            ann_g_in_f_matrix,
+            f_ann_g_matrix,
+            monomials,
+            label="Ann(g)∩⟨f⟩ / (f·Ann(g))",
+            verbose=False,
+        )
+    else:
+        ann_g_in_f_quotient_matrix = _zero_matrix()
+        ann_g_in_f_quotient_basis = []
+
+    if ann_f_in_g_matrix.size:
+        ann_f_in_g_quotient_matrix, ann_f_in_g_quotient_basis = compute_quotient_matrix(
+            ann_f_in_g_matrix,
+            g_ann_f_matrix,
+            monomials,
+            label="Ann(f)∩⟨g⟩ / (g·Ann(f))",
+            verbose=False,
+        )
+    else:
+        ann_f_in_g_quotient_matrix = _zero_matrix()
+        ann_f_in_g_quotient_basis = []
+
+    def _row_in_span(row: np.ndarray, span_matrix: np.ndarray) -> bool:
+        if span_matrix.size == 0:
+            return False
+        stacked = np.vstack([span_matrix, row])
+        return mod2.rank(stacked) == mod2.rank(span_matrix)
+
+    ann_g_in_f_indices: List[int] = []
+    for idx in range(ann_g_quotient_matrix.shape[0]):
+        row = ann_g_quotient_matrix[idx : idx + 1]
+        if _row_in_span(row, ann_g_in_f_quotient_matrix):
+            ann_g_in_f_indices.append(idx)
+
+    ann_f_in_g_indices: List[int] = []
+    for idx in range(ann_f_quotient_matrix.shape[0]):
+        row = ann_f_quotient_matrix[idx : idx + 1]
+        if _row_in_span(row, ann_f_in_g_quotient_matrix):
+            ann_f_in_g_indices.append(idx)
+
+    ann_g_in_f_basis = ann_g_in_f_quotient_basis
+    ann_f_in_g_basis = ann_f_in_g_quotient_basis
     # REPLACE END
     ########################################################################
 
@@ -737,14 +797,10 @@ def compute_tor_2(
         "tor_basis": tor2_basis,
         "tor_qubit_vectors": tor2_matrix_qubits,
         "tor_blocks": tor2_blocks,
-        "ann_g_outside_f_indices": ann_g_outside_f_indices,
-        "ann_g_outside_f_basis": [ann_g_quotient_basis[i] for i in ann_g_outside_f_indices],
         "ann_g_in_f_indices": ann_g_in_f_indices,
-        "ann_g_in_f_basis": [ann_g_quotient_basis[i] for i in ann_g_in_f_indices],
-        "ann_f_outside_g_indices": ann_f_outside_g_indices,
-        "ann_f_outside_g_basis": [ann_f_quotient_basis[i] for i in ann_f_outside_g_indices],
+        "ann_g_in_f_basis": ann_g_in_f_basis,
         "ann_f_in_g_indices": ann_f_in_g_indices,
-        "ann_f_in_g_basis": [ann_f_quotient_basis[i] for i in ann_f_in_g_indices],
+        "ann_f_in_g_basis": ann_f_in_g_basis,
         "dimension": len(tor2_basis),
     }
 
@@ -1049,29 +1105,20 @@ def verify_logical_z_equivalence(
     torsion_z_rank = mod2.rank(_stack_with_z(torsion_matrix))
     torsion2_z_rank = mod2.rank(_stack_with_z(tor2_matrix))
 
-    ann_f_outside_idx = (
-        tor2_details.get("ann_f_outside_g_indices", []) if tor2_details else []
-    )
     ann_f_inside_idx = (
         tor2_details.get("ann_f_in_g_indices", []) if tor2_details else []
-    )
-    ann_g_outside_idx = (
-        tor2_details.get("ann_g_outside_f_indices", []) if tor2_details else []
     )
     ann_g_inside_idx = (
         tor2_details.get("ann_g_in_f_indices", []) if tor2_details else []
     )
 
-    ann_f_outside_matrix = _subset_rows(block1_matrix, ann_f_outside_idx)
     ann_f_inside_matrix = _subset_rows(block1_matrix, ann_f_inside_idx)
-    ann_g_outside_matrix = _subset_rows(block2_matrix, ann_g_outside_idx)
     ann_g_inside_matrix = _subset_rows(block2_matrix, ann_g_inside_idx)
 
-    selected_union_parts: List[np.ndarray] = [
+    selected_union_parts = [
         z_stab_basis,
-        ann_f_outside_matrix,
-        ann_g_outside_matrix,
         ann_f_inside_matrix,
+        ann_g_inside_matrix,
         torsion_matrix,
     ]
     selected_union_parts = [part for part in selected_union_parts if part.size]
@@ -1079,16 +1126,15 @@ def verify_logical_z_equivalence(
         selected_union_matrix = np.vstack(selected_union_parts).astype(np.uint8)
         selected_union_rank = mod2.rank(selected_union_matrix)
     else:
-        selected_union_matrix = np.zeros((0, Hz.shape[1]), dtype=np.uint8)
         selected_union_rank = 0
 
     selected_union_matches_poly_rank = selected_union_rank == rank_poly
     print(
-        "DEBUG: rank(Z ∪ Ann(f)_out ∪ Ann(g)_out ∪ Ann(f)_dep ∪ Tor₁) = "
+        "DEBUG: rank(Z ∪ Ann(f)_dep ∪ Ann(g)_dep ∪ Tor₁) = "
         f"{selected_union_rank} (poly_stack rank={rank_poly}, match={selected_union_matches_poly_rank})"
     )
 
-    selected_union_parts: List[np.ndarray] = [
+    selected_union_parts = [
         z_stab_basis,
         ann_f_inside_matrix,
         ann_g_inside_matrix,
@@ -1098,68 +1144,10 @@ def verify_logical_z_equivalence(
         selected_union_matrix = np.vstack(selected_union_parts).astype(np.uint8)
         selected_union_rank = mod2.rank(selected_union_matrix)
     else:
-        selected_union_matrix = np.zeros((0, Hz.shape[1]), dtype=np.uint8)
         selected_union_rank = 0
 
     print(
         "DEBUG: rank(Z ∪ Ann(f)_dep ∪ Ann(g)_dep) = "
-        f"{selected_union_rank} (poly_stack rank={rank_poly})"
-    )
-
-    selected_union_parts: List[np.ndarray] = [
-        z_stab_basis,
-        ann_f_outside_matrix,
-        ann_g_outside_matrix,
-        ann_f_inside_matrix,
-        ann_g_inside_matrix,
-    ]
-    selected_union_parts = [part for part in selected_union_parts if part.size]
-    if selected_union_parts:
-        selected_union_matrix = np.vstack(selected_union_parts).astype(np.uint8)
-        selected_union_rank = mod2.rank(selected_union_matrix)
-    else:
-        selected_union_matrix = np.zeros((0, Hz.shape[1]), dtype=np.uint8)
-        selected_union_rank = 0
-
-    print(
-        "DEBUG: rank(Z ∪ Ann(f)_dep ∪ Ann(g)_dep ∪ Ann(f)_out ∪ Ann(g)_out) = "
-        f"{selected_union_rank} (poly_stack rank={rank_poly})"
-    )
-
-    selected_union_parts: List[np.ndarray] = [
-        z_stab_basis,
-        ann_f_outside_matrix,
-        ann_g_outside_matrix,
-    ]
-    selected_union_parts = [part for part in selected_union_parts if part.size]
-    if selected_union_parts:
-        selected_union_matrix = np.vstack(selected_union_parts).astype(np.uint8)
-        selected_union_rank = mod2.rank(selected_union_matrix)
-    else:
-        selected_union_matrix = np.zeros((0, Hz.shape[1]), dtype=np.uint8)
-        selected_union_rank = 0
-
-    print(
-        "DEBUG: rank(Z ∪ Ann(f)_out ∪ Ann(g)_out) = "
-        f"{selected_union_rank} (poly_stack rank={rank_poly})"
-    )
-
-    selected_union_parts: List[np.ndarray] = [
-        z_stab_basis,
-        ann_f_inside_matrix,
-        ann_f_outside_matrix,
-        ann_g_outside_matrix,
-    ]
-    selected_union_parts = [part for part in selected_union_parts if part.size]
-    if selected_union_parts:
-        selected_union_matrix = np.vstack(selected_union_parts).astype(np.uint8)
-        selected_union_rank = mod2.rank(selected_union_matrix)
-    else:
-        selected_union_matrix = np.zeros((0, Hz.shape[1]), dtype=np.uint8)
-        selected_union_rank = 0
-
-    print(
-        "DEBUG: rank(Z ∪ Ann(f)_dep ∪ Ann(f)_out ∪ Ann(g)_out) = "
         f"{selected_union_rank} (poly_stack rank={rank_poly})"
     )
 
@@ -1446,8 +1434,8 @@ def run_test_examples():
         # ("1 + x", "1 + y", 3, 3),
         # ("1 + x + x*y", "1 + y + x*y", 3, 3),
         # ("1 + x + x*y", "1 + y + x*y", 6, 6),
-        # ("x^3 + y + y^2", "y^3 + x + x^2", 6, 6),
-        ("x^3 + y + y^2", "y^3 + x + x^2", 12, 6),
+        ("x^3 + y + y^2", "y^3 + x + x^2", 6, 6),
+        # ("x^3 + y + y^2", "y^3 + x + x^2", 12, 6),
         # ("x^3 + y + y^2", "y^3 + x + x^2", 12, 12),
         # ("x^3 + y + y^2", "y^3 + x + x^2", 9, 9),
         # ("x+1", "y+1+x^2", 2, 2),
@@ -1499,15 +1487,7 @@ def run_test_examples():
                         print(f"    block1_poly = {block_info[idx]['block1_poly']}")
                         print(f"    block2_poly = {block_info[idx]['block2_poly']}")
 
-                outside_idx_ann_g = tor2_details.get("ann_g_outside_f_indices", [])
                 inside_idx_ann_g = tor2_details.get("ann_g_in_f_indices", [])
-                print(
-                    "Ann(g)/(f Ann(g)) independent indices w.r.t ⟨f⟩:",
-                    outside_idx_ann_g,
-                )
-                if tor2_details.get("ann_g_outside_f_basis"):
-                    for j, poly in enumerate(tor2_details["ann_g_outside_f_basis"]):
-                        print(f"  independent_poly[{j}] = {poly}")
                 print(
                     "Ann(g) ∩ ⟨f⟩ representative indices:",
                     inside_idx_ann_g,
@@ -1516,15 +1496,7 @@ def run_test_examples():
                     for j, poly in enumerate(tor2_details["ann_g_in_f_basis"]):
                         print(f"  intersection_poly[{j}] = {poly}")
 
-                outside_idx_ann_f = tor2_details.get("ann_f_outside_g_indices", [])
                 inside_idx_ann_f = tor2_details.get("ann_f_in_g_indices", [])
-                print(
-                    "Ann(f)/(g Ann(f)) independent indices w.r.t ⟨g⟩:",
-                    outside_idx_ann_f,
-                )
-                if tor2_details.get("ann_f_outside_g_basis"):
-                    for j, poly in enumerate(tor2_details["ann_f_outside_g_basis"]):
-                        print(f"  independent_poly[{j}] = {poly}")
                 print(
                     "Ann(f) ∩ ⟨g⟩ representative indices:",
                     inside_idx_ann_f,
