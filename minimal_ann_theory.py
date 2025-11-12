@@ -507,6 +507,30 @@ def compare_semiperiodic_with_css(
         indicator["index"] = idx
         torsion_ops.append(indicator)
 
+    print("Logical Z torsion operators (Tor_1):")
+
+    print("Tor_1 details:")
+    if tor1_data:
+        dimension = tor1_data.get("dimension")
+        if dimension is not None:
+            print(f"  dimension = {dimension}")
+        tor_basis = tor1_data.get("tor_basis", [])
+        if tor_basis:
+            print("  tor_basis:")
+            for idx, basis_poly in enumerate(tor_basis):
+                print(f"    [{idx}] {basis_poly}")
+                if idx < len(torsion_ops):
+                    entry = torsion_ops[idx]
+                    f_mult = entry.get("f_multiplier")
+                    g_mult = entry.get("g_multiplier")
+                    if f_mult is not None and g_mult is not None:
+                        print(f"      f_multiplier = {f_mult}")
+                        print(f"      g_multiplier = {g_mult}")
+        else:
+            print("  tor_basis: (empty)")
+    else:
+        print("  No Tor_1 data was provided.")
+
     logicals: Dict[str, object] = {
         "block1": block1_ops,
         "block2": block2_ops,
