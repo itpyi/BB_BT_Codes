@@ -62,3 +62,5 @@ BT_INTEGRATION_GUIDE.md
 uv.lock
 
 # sinter_example.py
+
+*.nb

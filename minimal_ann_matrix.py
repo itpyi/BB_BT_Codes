@@ -546,10 +546,10 @@ def compute_tor_1(
     )
 
     # Step 3: Product ideal IJ and its Groebner basis
-    gens_I = [sp.expand(f_poly), *periods]
-    gens_J = [sp.expand(g_poly), *periods]
-    product_generators = [sp.expand(gi * gj) for gi in gens_I for gj in gens_J]
-    product_gb = sp.groebner(product_generators + periods, x, y, modulus=2, order="lex")
+    # gens_I = [sp.expand(f_poly), *periods]
+    # gens_J = [sp.expand(g_poly), *periods]
+    # product_generators = [sp.expand(gi * gj) for gi in gens_I for gj in gens_J]
+    product_gb = sp.groebner([sp.expand(f_poly * g_poly), *periods], x, y, modulus=2, order="lex")
     product_basis_polys = [sp.expand(p.as_expr()) for p in product_gb.polys]
     product_matrix, product_basis = _row_basis_from_polynomials(
         product_basis_polys, monomials, l, m
@@ -1102,6 +1102,7 @@ def verify_logical_z_equivalence(
     )
     block1_z_rank = mod2.rank(_stack_with_z(block1_matrix))
     block2_z_rank = mod2.rank(_stack_with_z(block2_matrix))
+    block12_z_rank = mod2.rank(_stack_with_z(np.vstack([block1_matrix, block2_matrix])))
     torsion_z_rank = mod2.rank(_stack_with_z(torsion_matrix))
     torsion2_z_rank = mod2.rank(_stack_with_z(tor2_matrix))
 
@@ -1220,6 +1221,7 @@ def verify_logical_z_equivalence(
         "rank_z_stabilizer": z_stab_rank,
         "rank_block1_z_union": block1_z_rank,
         "rank_block2_z_union": block2_z_rank,
+        "rank_block12_z_union": block12_z_rank,
         "rank_torsion_z_union": torsion_z_rank,
         "rank_tor2": tor2_rank,
         "rank_tor2_z_union": tor2_union_rank,
@@ -1439,9 +1441,9 @@ def run_test_examples():
         # ("x^3 + y + y^2", "y^3 + x + x^2", 12, 12),
         # ("x^3 + y + y^2", "y^3 + x + x^2", 9, 9),
         # ("x+1", "y+1+x^2", 2, 2),
-        ("x + y^3 + y^4", "y + x^3 + x^4", 7, 7),
-        ("x^3 + y + y^2", "y^3 + x + x^2", 9, 9),
-        ("x^3 + y + y^2", "y^3 + x + x^2", 3, 3),
+        # ("x + y^3 + y^4", "y + x^3 + x^4", 7, 7),
+        # ("x^3 + y + y^2", "y^3 + x + x^2", 9, 9),
+        # ("x^3 + y + y^2", "y^3 + x + x^2", 3, 3),
     ]
 
     print("=== Running Test Examples ===")
@@ -1519,11 +1521,11 @@ def run_test_examples():
             # print(logicals["matrix"])
 
             equivalence = verify_logical_z_equivalence(f, g, l, m, logicals)
-            print(
-                f"Polynomial ↔ css_code logical Z matches: {len(equivalence['matches'])}; "
-                f"unmatched polynomial (pairwise)={len(equivalence['unmatched_polynomial'])}; "
-                f"unmatched css (pairwise)={len(equivalence['unmatched_css'])}"
-            )
+            # print(
+            #     f"Polynomial ↔ css_code logical Z matches: {len(equivalence['matches'])}; "
+            #     f"unmatched polynomial (pairwise)={len(equivalence['unmatched_polynomial'])}; "
+            #     f"unmatched css (pairwise)={len(equivalence['unmatched_css'])}"
+            # )
             print(
                 "  CSS & Poly:  rank(css ∪ Z)={rank_css}, rank(poly ∪ Z)={rank_poly}, rank(css ∪ poly ∪ Z)={rank_union}, rank(Z stabilizer)={rank_z}".format(
                     rank_css=equivalence["rank_css_space"],
@@ -1533,9 +1535,10 @@ def run_test_examples():
                 )
             )
             print(
-                "  Poly:        rank(block1 ∪ Z)={rank_b1}, rank(block2 ∪ Z)={rank_b2}, rank(torsion 1 ∪ Z)={rank_tor}".format(
+                "  Poly:        rank(block1 ∪ Z)={rank_b1}, rank(block2 ∪ Z)={rank_b2},  rank(block1 ∪ block2 ∪ Z)={rank_b12}, rank(torsion 1 ∪ Z)={rank_tor}".format(
                     rank_b1=equivalence["rank_block1_z_union"],
                     rank_b2=equivalence["rank_block2_z_union"],
+                    rank_b12=equivalence["rank_block12_z_union"],
                     rank_tor=equivalence["rank_torsion_z_union"],
                 )
             )
@@ -1547,17 +1550,17 @@ def run_test_examples():
                 )
             )
             # print(f"rank(Tor_2 ∪ Z) = {tor2_details['tor_z_rank']}")
-            _print_logical_equivalence_details(logicals, equivalence)
-            if equivalence["poly_not_in_css_span"]:
-                print(
-                    "  ⚠ Polynomial vectors outside span(css ∪ Z) indices:",
-                    equivalence["poly_not_in_css_span"],
-                )
-            if equivalence["css_not_in_poly_span"]:
-                print(
-                    "  ⚠ css_code vectors outside span(polynomials ∪ Z) indices:",
-                    equivalence["css_not_in_poly_span"],
-                )
+            # _print_logical_equivalence_details(logicals, equivalence)
+            # if equivalence["poly_not_in_css_span"]:
+            #     print(
+            #         "  ⚠ Polynomial vectors outside span(css ∪ Z) indices:",
+            #         equivalence["poly_not_in_css_span"],
+            #     )
+            # if equivalence["css_not_in_poly_span"]:
+            #     print(
+            #         "  ⚠ css_code vectors outside span(polynomials ∪ Z) indices:",
+            #         equivalence["css_not_in_poly_span"],
+            #     )
 
         except Exception as e:
             print(f"✗ Error: {e}")

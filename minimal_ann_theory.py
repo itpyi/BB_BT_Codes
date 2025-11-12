@@ -21,6 +21,18 @@ import sympy as sp
 from sympy import expand, symbols
 from typing import Dict, List, Optional, Tuple
 
+from minimal_ann_matrix import (
+    _monomial_basis,
+    _multiplication_matrix,
+    _solve_linear_mod2,
+    build_qubit_logical_indicator,
+    build_torsion_logical_indicator,
+    compute_tor_1,
+    poly_to_vector,
+    vector_to_poly,
+    verify_logical_z_equivalence,
+)
+
 x, y = symbols("x y")
 
 _ring_groebner_cache: Dict[Tuple[int, int], sp.GroebnerBasis] = {}
@@ -428,6 +440,121 @@ def compute_ann_generators(
     }
 
 
+def compute_semiperiodic_tor1(
+    f_str: str,
+    g_str: str,
+    l: int,
+    m: int,
+) -> Dict[str, object]:
+    """Return Tor₁ data using the Gaussian-elimination helper."""
+
+    return compute_tor_1(f_str, g_str, l, m)
+
+
+def compare_semiperiodic_with_css(
+    f_str: str,
+    g_str: str,
+    l: int,
+    m: int,
+    *,
+    generators: Optional[Dict[str, object]] = None,
+    tor1_data: Optional[Dict[str, object]] = None,
+) -> Dict[str, object]:
+    """Compare semiperiodic Ann(f), Ann(g), and Tor₁ logicals against css_code outputs."""
+
+    if generators is None:
+        generators = compute_ann_generators(f_str, g_str, l, m)
+    if tor1_data is None:
+        tor1_data = compute_semiperiodic_tor1(f_str, g_str, l, m)
+
+    f_poly = sp.sympify(f_str)
+    g_poly = sp.sympify(g_str)
+    monomials = _monomial_basis(l, m)
+    mult_matrix_f = _multiplication_matrix(f_poly, monomials, l, m)
+    mult_matrix_g = _multiplication_matrix(g_poly, monomials, l, m)
+
+    block1_ops: List[Dict[str, object]] = []
+    for idx, entry in enumerate(generators["ann_f_orbit"]):
+        poly = entry["poly"]
+        indicator = build_qubit_logical_indicator(poly, l, m, block=0)
+        indicator["index"] = idx
+        indicator["source"] = "Ann(f)"
+        indicator["orbit_translation"] = entry.get("translation")
+        block1_ops.append(indicator)
+
+    block2_ops: List[Dict[str, object]] = []
+    for idx, entry in enumerate(generators["ann_g_orbit"]):
+        poly = entry["poly"]
+        indicator = build_qubit_logical_indicator(poly, l, m, block=1)
+        indicator["index"] = idx
+        indicator["source"] = "Ann(g)"
+        indicator["orbit_translation"] = entry.get("translation")
+        block2_ops.append(indicator)
+
+    torsion_ops: List[Dict[str, object]] = []
+    for idx, poly in enumerate(tor1_data.get("tor_basis", [])):
+        tor_vec = poly_to_vector(poly, monomials, l, m)
+        f_solution = _solve_linear_mod2(mult_matrix_f, tor_vec)
+        g_solution = _solve_linear_mod2(mult_matrix_g, tor_vec)
+        if f_solution is None or g_solution is None:
+            raise ValueError(
+                "Failed to express Tor₁ generator as an f- and g-multiple in the ambient ring"
+            )
+
+        f_multiplier = vector_to_poly(f_solution, monomials)
+        g_multiplier = vector_to_poly(g_solution, monomials)
+        indicator = build_torsion_logical_indicator(poly, f_multiplier, g_multiplier, l, m)
+        indicator["index"] = idx
+        torsion_ops.append(indicator)
+
+    logicals: Dict[str, object] = {
+        "block1": block1_ops,
+        "block2": block2_ops,
+        "torsion": torsion_ops,
+        "tor_details": tor1_data,
+        "tor2_details": None,
+    }
+
+    equivalence = verify_logical_z_equivalence(
+        f_str,
+        g_str,
+        l,
+        m,
+        logicals=logicals,
+    )
+
+    print(
+        "  CSS & Poly:  rank(css ∪ Z)={rank_css}, rank(poly ∪ Z)={rank_poly}, rank(css ∪ poly ∪ Z)={rank_union}, rank(Z stabilizer)={rank_z}".format(
+            rank_css=equivalence["rank_css_space"],
+            rank_poly=equivalence["rank_poly_space"],
+            rank_union=equivalence["rank_union_space"],
+            rank_z=equivalence["rank_z_stabilizer"],
+        )
+    )
+    print(
+        "  Poly:        rank(block1 ∪ Z)={rank_b1}, rank(block2 ∪ Z)={rank_b2},  rank(block1 ∪ block2 ∪ Z)={rank_b12}, rank(torsion 1 ∪ Z)={rank_tor}".format(
+            rank_b1=equivalence["rank_block1_z_union"],
+            rank_b2=equivalence["rank_block2_z_union"],
+            rank_b12=equivalence["rank_block12_z_union"],
+            rank_tor=equivalence["rank_torsion_z_union"],
+        )
+    )
+    print(
+        "  Tor_2:       rank={rank_t2}, rank(Tor_2 ∪ Z)={rank_t2u}, rank(Tor_2 ∩ Z)={rank_t2i}".format(
+            rank_t2=equivalence["rank_tor2"],
+            rank_t2u=equivalence["rank_tor2_z_union"],
+            rank_t2i=equivalence["rank_tor2_z_intersection"],
+        )
+    )
+
+    return {
+        "generators": generators,
+        "tor1": tor1_data,
+        "logicals": logicals,
+        "equivalence": equivalence,
+    }
+
+
 def _format_orbit_entry(entry: Dict[str, object]) -> str:
     poly = entry["poly"]
     translation = entry.get("translation")
@@ -440,7 +567,7 @@ def run_test_examples() -> None:
 
     test_cases = [
         # ("x + y^3 + y^4", "y + x^3 + x^4", 7, 7),
-        ("x^3 + y + y^2", "y^3 + x + x^2", 3, 3),
+        # ("x^3 + y + y^2", "y^3 + x + x^2", 3, 3),
         ("x^3 + y + y^2", "y^3 + x + x^2", 6, 6),
     ]
 
@@ -474,6 +601,13 @@ def run_test_examples() -> None:
         if swapped == Q:
             print("  ✓ Verified Q(x, y) = P(y, x).")
 
+        comparison = compare_semiperiodic_with_css(
+            f_str,
+            g_str,
+            l,
+            m,
+            generators=result,
+        )
 
 if __name__ == "__main__":
     run_test_examples()
